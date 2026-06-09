@@ -1,4 +1,4 @@
-Equipt-Project-Repository
+# Equipt-Project-Repository
 
 Project Title: Equipt
 
