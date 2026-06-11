@@ -12,7 +12,7 @@
 
 **Team Introduction:**
 
-•	Ben -
+•	Ben - Hi, I'm Ben Krawiec. I work at Ford Motor Company as a system applications engineer in the Advanced Driver Assist Systems group with a focus on perception systems such as cameras, radars, and ultrasonic sensors. I am currently in the MPD Master's program at Detroit Mercy. Looking forward to learning how to use GitHub!
 
 •	Beatriz - 
 
