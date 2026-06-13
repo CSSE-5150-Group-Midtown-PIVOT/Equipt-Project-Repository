@@ -14,7 +14,7 @@
 
 •	Ben - Hi, I'm Ben Krawiec. I work at Ford Motor Company as a system applications engineer in the Advanced Driver Assist Systems group with a focus on perception systems such as cameras, radars, and ultrasonic sensors. I am currently in the MPD Master's program at Detroit Mercy. Looking forward to learning how to use GitHub!
 
-•	Beatriz - 
+•	Beatriz - Hola!, My name is Beatriz, I'm part of cohort 27 but most importantly part of this wonderful team. I work for Ford like my teammates, currently waiting to transition to a new Role in SW Quality Assurance. Outside work and school I'm a mom of 2 wonderful kids. I'm thankful and excited to be learning and creating new things, life is good! 
 
 •	Jake - Hi, I’m Jake Fratzke. I work at Ford Motor Company as an engine systems engineer for the 2.0L Panther diesel engine in the global Ranger platform and am currently in the MPD Master's program at Detroit Mercy. I’m excited to be a part of Group Midtown working on Equipt!
 
