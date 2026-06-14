@@ -18,4 +18,4 @@
 
 •	Jake - Hi, I’m Jake Fratzke. I work at Ford Motor Company as an engine systems engineer for the 2.0L Panther diesel engine in the global Ranger platform and am currently in the MPD Master's program at Detroit Mercy. I’m excited to be a part of Group Midtown working on Equipt!
 
-•	Makayla - 
+•	Makayla - Hi! I'm Makayla Mires. I work at Ford Motor Company as a design and release engineer in Body Exterior. My focus is on the handles, latching, and mechanisms on closures. Outside of work, I love to travel, cook, and work out. Looking forward to learning more and working on this project with the rest of Group Midtown!
