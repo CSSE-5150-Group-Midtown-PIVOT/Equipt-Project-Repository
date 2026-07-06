@@ -10,4 +10,12 @@
 //   appId: 'YOUR_APP_ID'
 // };
 
-export const firebaseConfig = {};
+export const firebaseConfig = {
+  apiKey: "AIzaSyAKswRvqVeBIdGmePN5O8Yyn2sblaUlgCk",
+  authDomain: "equipt-a4fdd.firebaseapp.com",
+  projectId: "equipt-a4fdd",
+  storageBucket: "equipt-a4fdd.firebasestorage.app",
+  messagingSenderId: "43253169672",
+  appId: "1:43253169672:web:294ac4c59c8f64e8a75bbd",
+  measurementId: "G-R66CY0XDKP"
+};
