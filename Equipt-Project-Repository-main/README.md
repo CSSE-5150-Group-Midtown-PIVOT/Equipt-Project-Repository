@@ -16,7 +16,7 @@ Equipt-Project-Repository-main/
 └── README.md
 ```
 
-## What each major folder is for
+## What each major folder is for ?
 
 - assets/: Stores images, icons, and other static files.
 - controllers/: Holds page and app logic that responds to user actions.
