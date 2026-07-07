@@ -3,7 +3,7 @@ export function renderLoginView() {
   return `
     <section class="card">
       <h2>Login</h2>
-      <p>Press Log In to continue to the placeholder login form.</p>
+      <p>Press log in to continue to your account or register to create one</p>
       <button id="login-btn">Log In</button>
       <button id="register-btn" class="secondary">Register</button>
     </section>
