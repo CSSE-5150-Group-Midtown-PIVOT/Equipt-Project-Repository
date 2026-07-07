@@ -185,7 +185,7 @@ export function renderDashboardView() {
         </div>
       </div>
 
-      <button id="create-record">Create Sample Record</button>
+      <button id="create-record">Search</button>
     </section>
   `;
 }

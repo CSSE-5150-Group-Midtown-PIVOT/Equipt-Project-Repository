@@ -44,11 +44,25 @@ main {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fcff 100%);
+  border: 1px solid #dbeafe;
+  box-shadow: 0 14px 32px rgba(15, 42, 74, 0.1);
+}
+
+.catalog-card h2 {
+  margin-bottom: 0.25rem;
+  color: #0f2a4a;
+}
+
+.catalog-card > p {
+  margin-top: 0;
+  color: #475569;
 }
 
 .search-label,
 .filter-label {
   font-weight: bold;
+  color: #0f2a4a;
 }
 
 .search-row {
@@ -59,10 +73,11 @@ main {
 
 .search-input,
 .category-select {
-  padding: 0.7rem;
-  border: 1px solid #cfd8e3;
-  border-radius: 6px;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
   font-size: 1rem;
+  background: #ffffff;
 }
 
 .search-row .search-input {
@@ -74,6 +89,10 @@ main {
   flex-direction: column;
   gap: 1rem;
   margin-top: 0.75rem;
+  padding: 1rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f8fbff 0%, #eef8ef 100%);
+  border: 1px solid #d8e8da;
 }
 
 .optional-filters.hidden {
@@ -87,21 +106,22 @@ main {
 }
 
 .filter-section {
-  border-top: 1px solid #e5eaf2;
+  border-top: 1px solid #dbeafe;
   padding-top: 0.75rem;
 }
 
 .filter-section h3 {
   margin: 0 0 0.5rem;
   font-size: 1rem;
+  color: #2f6f3e;
 }
 
 .category-checklist {
   margin-top: 0.75rem;
-  padding: 0.75rem;
-  border: 1px solid #e5eaf2;
-  border-radius: 6px;
-  background: #f8fbff;
+  padding: 0.8rem;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #ffffff;
 }
 
 .category-prompt {
@@ -212,16 +232,18 @@ main {
 }
 
 button {
-  background: #2f6fed;
+  background: #2f6f3e;
   color: white;
   border: none;
-  padding: 0.6rem 1rem;
-  border-radius: 4px;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
   cursor: pointer;
+  font-weight: 600;
 }
 
 button.secondary {
-  background: #6c757d;
+  background: #facc15;
+  color: #0f2a4a;
 }
 
 .home-hero {
