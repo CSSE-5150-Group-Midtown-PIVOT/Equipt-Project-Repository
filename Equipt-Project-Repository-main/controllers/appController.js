@@ -1,6 +1,6 @@
 import { renderView } from '../views/viewRenderer.js';
 import { renderHomeView } from '../views/homeView.js';
-import { renderLoginView } from '../views/loginView.js';
+import { renderLoginView, renderLoginFormView } from '../views/loginView.js';
 import { renderDashboardView } from '../views/dashboardView.js';
 import { renderProfileView } from '../views/profileView.js';
 import { AuthService } from '../services/authService.js';
@@ -19,8 +19,26 @@ function showHomePage() {
 
 function showLoginPage() {
   renderView(app, renderLoginView());
-  document.getElementById('login-btn')?.addEventListener('click', () => authService.login('demo@example.com', 'password123'));
+  document.getElementById('login-btn')?.addEventListener('click', () => {
+    window.location.hash = 'login-form';
+  });
   document.getElementById('register-btn')?.addEventListener('click', () => authService.register('demo@example.com', 'password123'));
+}
+
+function showLoginFormPage() {
+  renderView(app, renderLoginFormView());
+
+  const loginForm = document.getElementById('login-form');
+  loginForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const email = document.getElementById('email')?.value || 'demo@example.com';
+    const password = document.getElementById('password')?.value || 'password123';
+    authService.login(email, password);
+  });
+
+  document.getElementById('back-btn')?.addEventListener('click', () => {
+    window.location.hash = 'login';
+  });
 }
 
 function showToolCatalogPage() {
@@ -100,6 +118,8 @@ function route() {
 
   if (hash === 'login') {
     showLoginPage();
+  } else if (hash === 'login-form') {
+    showLoginFormPage();
   } else if (hash === 'tool-catalog') {
     showToolCatalogPage();
   } else if (hash === 'profile') {
