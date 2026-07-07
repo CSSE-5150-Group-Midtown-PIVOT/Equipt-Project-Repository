@@ -1,18 +1,29 @@
-// AuthService contains Firebase Authentication placeholder code.
-// Add the real Firebase import and configuration values in firebase-config.js.
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
+import { firebaseAuth } from './firebase-config.js';
+import { DatabaseService } from './databaseService.js';
+
 export class AuthService {
+  constructor() {
+    this.databaseService = new DatabaseService();
+  }
+
   async login(email, password) {
-    console.log('Placeholder login function called for:', email);
-    // Future work: sign in with Firebase Auth here.
+    return signInWithEmailAndPassword(firebaseAuth, email, password);
   }
 
   async logout() {
-    console.log('Placeholder logout function called.');
-    // Future work: sign out the current user with Firebase Auth here.
+    return signOut(firebaseAuth);
   }
 
-  async register(email, password) {
-    console.log('Placeholder register function called for:', email);
-    // Future work: create a Firebase Auth user here.
+  async register(email, password, userData = {}) {
+    const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+
+    await this.databaseService.createUserProfile(userCredential.user.uid, {
+      ...userData,
+      email,
+      createdAt: new Date().toISOString()
+    });
+
+    return userCredential;
   }
 }

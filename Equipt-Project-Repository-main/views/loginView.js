@@ -30,3 +30,63 @@ export function renderLoginFormView() {
     </section>
   `;
 }
+
+export function renderRegistrationView() {
+  return `
+    <section class="registration-shell">
+      <div class="registration-visual" aria-label="Illustration of shared tools">
+        <div class="registration-visual__badge">Trusted tools. Shared locally.</div>
+        <div class="registration-visual__tool registration-visual__tool--drill">🔧</div>
+        <div class="registration-visual__tool registration-visual__tool--saw">🪚</div>
+        <div class="registration-visual__tool registration-visual__tool--hammer">🔨</div>
+        <div class="registration-visual__tool registration-visual__tool--ladder">🪜</div>
+      </div>
+
+      <div class="card registration-card">
+        <p class="registration-eyebrow">Join Equipt</p>
+        <h2>Create your account</h2>
+        <p class="registration-subtext">Rent tools confidently or earn by lending your equipment to neighbors.</p>
+        <form id="registration-form" class="registration-form">
+          <div class="registration-grid">
+            <label class="form-field">
+              First Name
+              <input type="text" name="firstName" placeholder="First name" required />
+            </label>
+            <label class="form-field">
+              Last Name
+              <input type="text" name="lastName" placeholder="Last name" required />
+            </label>
+          </div>
+          <label class="form-field">
+            Email
+            <input type="email" name="email" placeholder="you@example.com" required />
+          </label>
+          <label class="form-field">
+            Phone Number
+            <input type="tel" name="phone" placeholder="(555) 123-4567" required />
+          </label>
+          <label class="form-field">
+            Password
+            <input type="password" name="password" placeholder="Create a password" required />
+          </label>
+          <label class="form-field">
+            Confirm Password
+            <input type="password" name="confirmPassword" placeholder="Re-enter password" required />
+          </label>
+          <label class="form-field">
+            Role
+            <select name="role" required>
+              <option value="">Select a role</option>
+              <option value="Lender">Lender</option>
+              <option value="Renter">Renter</option>
+            </select>
+          </label>
+          <div class="registration-actions">
+            <button type="submit">Create Account</button>
+            <button id="back-to-login" class="secondary" type="button">Back</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  `;
+}

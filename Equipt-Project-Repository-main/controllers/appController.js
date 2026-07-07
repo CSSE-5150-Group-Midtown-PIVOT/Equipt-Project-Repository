@@ -1,6 +1,6 @@
 import { renderView } from '../views/viewRenderer.js';
 import { renderHomeView } from '../views/homeView.js';
-import { renderLoginView, renderLoginFormView } from '../views/loginView.js';
+import { renderLoginView, renderLoginFormView, renderRegistrationView } from '../views/loginView.js';
 import { renderDashboardView } from '../views/dashboardView.js';
 import { renderProfileView } from '../views/profileView.js';
 import { AuthService } from '../services/authService.js';
@@ -22,7 +22,69 @@ function showLoginPage() {
   document.getElementById('login-btn')?.addEventListener('click', () => {
     window.location.hash = 'login-form';
   });
-  document.getElementById('register-btn')?.addEventListener('click', () => authService.register('demo@example.com', 'password123'));
+  document.getElementById('register-btn')?.addEventListener('click', () => {
+    window.location.hash = 'register';
+  });
+}
+
+function showRegistrationPage() {
+  renderView(app, renderRegistrationView());
+
+  const registrationForm = document.getElementById('registration-form');
+  registrationForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const formData = new FormData(registrationForm);
+    const password = formData.get('password');
+    const confirmPassword = formData.get('confirmPassword');
+
+    const passwordRequirements = {
+      minLength: password && password.length >= 12,
+      uppercase: /[A-Z]/.test(password || ''),
+      specialChar: /[^A-Za-z0-9]/.test(password || '')
+    };
+
+    const unmetRequirements = [];
+
+    if (!passwordRequirements.minLength) {
+      unmetRequirements.push('at least 12 characters');
+    }
+    if (!passwordRequirements.uppercase) {
+      unmetRequirements.push('one uppercase letter');
+    }
+    if (!passwordRequirements.specialChar) {
+      unmetRequirements.push('one special character');
+    }
+
+    if (unmetRequirements.length > 0) {
+      alert(`Password must include ${unmetRequirements.join(', ')}.`);
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      alert('Passwords do not match.');
+      return;
+    }
+
+    try {
+      await authService.register(formData.get('email'), password, {
+        firstName: formData.get('firstName'),
+        lastName: formData.get('lastName'),
+        phone: formData.get('phone'),
+        role: formData.get('role')
+      });
+
+      alert('Account created successfully!');
+      window.location.hash = 'login';
+    } catch (error) {
+      console.error('Registration failed:', error);
+      alert(error?.message || 'Registration failed. Please try again.');
+    }
+  });
+
+  document.getElementById('back-to-login')?.addEventListener('click', () => {
+    window.location.hash = 'login';
+  });
 }
 
 function showLoginFormPage() {
@@ -120,6 +182,8 @@ function route() {
     showLoginPage();
   } else if (hash === 'login-form') {
     showLoginFormPage();
+  } else if (hash === 'register') {
+    showRegistrationPage();
   } else if (hash === 'tool-catalog') {
     showToolCatalogPage();
   } else if (hash === 'profile') {

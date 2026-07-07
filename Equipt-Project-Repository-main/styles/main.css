@@ -34,10 +34,103 @@ main {
 
 .card {
   background: white;
-  border-radius: 8px;
+  border-radius: 18px;
   padding: 1.5rem;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 20px 45px rgba(15, 42, 74, 0.12);
   max-width: 900px;
+}
+
+.registration-shell {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 1.5rem;
+  align-items: stretch;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.registration-visual {
+  position: relative;
+  min-height: 520px;
+  border-radius: 24px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #0f2a4a 0%, #1d4ed8 45%, #2f6f3e 100%);
+  padding: 1.5rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  box-shadow: 0 20px 45px rgba(15, 42, 74, 0.16);
+}
+
+.registration-visual::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top left, rgba(250, 204, 21, 0.25), transparent 35%);
+}
+
+.registration-visual__badge {
+  position: absolute;
+  top: 1.25rem;
+  left: 1.25rem;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+  padding: 0.6rem 0.9rem;
+  border-radius: 999px;
+  font-weight: 700;
+  backdrop-filter: blur(6px);
+}
+
+.registration-visual__tool {
+  position: absolute;
+  font-size: 3rem;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.2));
+}
+
+.registration-visual__tool--drill {
+  left: 10%;
+  bottom: 18%;
+}
+
+.registration-visual__tool--saw {
+  left: 34%;
+  bottom: 22%;
+}
+
+.registration-visual__tool--hammer {
+  right: 16%;
+  bottom: 20%;
+}
+
+.registration-visual__tool--ladder {
+  right: 8%;
+  top: 24%;
+}
+
+.registration-card {
+  padding: 2rem;
+}
+
+.registration-eyebrow {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #2f6f3e;
+}
+
+.registration-card h2 {
+  margin: 0 0 0.5rem;
+  color: #0f2a4a;
+  font-size: 2rem;
+}
+
+.registration-subtext {
+  margin: 0 0 1.2rem;
+  color: #475569;
+  line-height: 1.6;
 }
 
 .catalog-card {
@@ -224,6 +317,46 @@ button.secondary {
   background: #6c757d;
 }
 
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.form-field input,
+.form-field select {
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #cfd8e3;
+  border-radius: 10px;
+  font-size: 1rem;
+  background: #f8fbff;
+}
+
+.registration-form {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.registration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.registration-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.registration-actions button {
+  flex: 1 1 180px;
+}
+
 .home-hero {
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
@@ -405,7 +538,36 @@ button.secondary {
   border-radius: 24px 24px 22px 22px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
+  .registration-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .registration-visual {
+    min-height: 280px;
+  }
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 1rem;
+  }
+
+  .registration-card {
+    padding: 1.25rem;
+  }
+
+  .registration-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .registration-actions {
+    flex-direction: column;
+  }
+
+  .registration-visual__tool {
+    font-size: 2.2rem;
+  }
   .home-hero {
     grid-template-columns: 1fr;
   }
