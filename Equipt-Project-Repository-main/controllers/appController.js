@@ -13,7 +13,7 @@ const authService = new AuthService();
 const databaseService = new DatabaseService();
 
 function showHomePage() {
-  renderView(app, renderHomeView());
+  renderView(app, renderHomeView(Boolean(authService.getCurrentUser())));
   document.getElementById('go-login')?.addEventListener('click', showLoginPage);
 }
 

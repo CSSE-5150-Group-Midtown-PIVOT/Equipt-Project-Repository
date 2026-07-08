@@ -1,5 +1,5 @@
 // Landing page view for Equipt.
-export function renderHomeView() {
+export function renderHomeView(isLoggedIn = false) {
   return `
     <section class="home-hero">
       <div class="home-hero__content">
@@ -10,7 +10,7 @@ export function renderHomeView() {
           Join a local network of people sharing trusted tools, earning money from idle equipment, and getting projects done faster.
         </p>
         <div class="home-actions">
-          <a class="home-btn home-btn--primary" href="#login">Log In</a>
+          ${isLoggedIn ? '' : '<a class="home-btn home-btn--primary" href="#login">Log In</a>'}
           <a class="home-btn home-btn--secondary" href="#tool-catalog">Tool Catalog</a>
         </div>
       </div>
