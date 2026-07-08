@@ -13,9 +13,12 @@ export function renderLoginView() {
 // Placeholder login form page with email and password fields.
 export function renderLoginFormView() {
   return `
-    <section class="card">
-      <h2>Log In</h2>
-      <form id="login-form">
+    <section class="card login-card">
+      <div class="login-card__header">
+        <h2>Log In</h2>
+        <button id="register-from-login" class="secondary">Register</button>
+      </div>
+      <form id="login-form" class="login-form">
         <div id="login-error" class="form-error" role="alert" aria-live="polite" hidden></div>
         <div id="login-success" class="form-success" role="status" aria-live="polite" hidden></div>
         <label class="form-field">
@@ -26,9 +29,11 @@ export function renderLoginFormView() {
           Password
           <input type="password" id="password" placeholder="Enter password" required />
         </label>
-        <button type="submit">Submit</button>
+        <div class="login-actions">
+          <button type="submit">Submit</button>
+          <button id="back-btn" class="secondary">Back</button>
+        </div>
       </form>
-      <button id="back-btn" class="secondary">Back</button>
     </section>
   `;
 }

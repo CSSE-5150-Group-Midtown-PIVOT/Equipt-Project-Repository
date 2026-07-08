@@ -18,13 +18,7 @@ function showHomePage() {
 }
 
 function showLoginPage() {
-  renderView(app, renderLoginView());
-  document.getElementById('login-btn')?.addEventListener('click', () => {
-    window.location.hash = 'login-form';
-  });
-  document.getElementById('register-btn')?.addEventListener('click', () => {
-    window.location.hash = 'register';
-  });
+  window.location.hash = 'login-form';
 }
 
 function showRegistrationPage() {
@@ -125,15 +119,21 @@ function showLoginFormPage() {
     try {
       await authService.login(email, password);
       setLoginSuccess('Successful login: welcome to Equipt!');
-      window.location.hash = 'tool-catalog';
+      window.setTimeout(() => {
+        window.location.hash = 'tool-catalog';
+      }, 1200);
     } catch (error) {
       console.error('Login failed:', error);
       setLoginError('Error: Invalid login credentials');
     }
   });
 
+  document.getElementById('register-from-login')?.addEventListener('click', () => {
+    window.location.hash = 'register';
+  });
+
   document.getElementById('back-btn')?.addEventListener('click', () => {
-    window.location.hash = 'login';
+    window.location.hash = 'home';
   });
 }
 

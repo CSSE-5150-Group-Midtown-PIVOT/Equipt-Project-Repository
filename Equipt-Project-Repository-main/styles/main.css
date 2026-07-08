@@ -40,6 +40,41 @@ main {
   max-width: 900px;
 }
 
+.login-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.login-card__header h2 {
+  margin: 0;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.login-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+#register-from-login {
+  background: #2563eb;
+  color: white;
+  border: none;
+}
+
+#register-from-login:hover {
+  background: #1d4ed8;
+}
+
 .form-error {
   margin-bottom: 1rem;
   padding: 0.75rem 0.9rem;
