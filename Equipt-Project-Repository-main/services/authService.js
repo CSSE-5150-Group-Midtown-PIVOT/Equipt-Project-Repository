@@ -52,9 +52,7 @@ export class AuthService {
       await existingVerifier.clear();
     }
 
-    console.log('Firebase project config:', firebaseAuth?.app?.options);
-    console.log('Current browser origin:', window.location.origin);
-
+    // Use invisible reCAPTCHA verifier created on-demand; avoid extra console output in production.
     const appVerifier = new RecaptchaVerifier(firebaseAuth, recaptchaContainerId, {
       size: 'invisible',
       callback: () => {}
@@ -74,7 +72,17 @@ export class AuthService {
     const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
 
     if (phoneCredential) {
-      await linkWithCredential(userCredential.user, phoneCredential);
+      try {
+        await linkWithCredential(userCredential.user, phoneCredential);
+      } catch (linkError) {
+        // Clean up the newly created user to avoid orphaned accounts when linking fails.
+        try {
+          await userCredential.user.delete();
+        } catch (deleteErr) {
+          // ignore deletion errors
+        }
+        throw linkError;
+      }
     }
 
     await this.databaseService.createUserProfile(userCredential.user.uid, {

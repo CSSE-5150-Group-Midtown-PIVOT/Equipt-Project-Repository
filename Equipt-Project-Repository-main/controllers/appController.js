@@ -14,8 +14,15 @@ const databaseService = new DatabaseService();
 
 function getFriendlyAuthError(error) {
   const code = error?.code || '';
+  const message = (error?.message || '').toLowerCase();
 
-  switch (code) {
+  // fallback: if code is missing, inspect message text for known error indicators
+  const inferredCode = code || (message.includes('account-exists-with-different-credential') ? 'auth/account-exists-with-different-credential' :
+    message.includes('credential-already-in-use') ? 'auth/credential-already-in-use' :
+    message.includes('phone-number-already-exists') ? 'auth/phone-number-already-exists' :
+    '');
+
+  switch (inferredCode) {
     case 'auth/invalid-email':
       return 'Please enter a valid email address.';
     case 'auth/user-disabled':
@@ -40,10 +47,16 @@ function getFriendlyAuthError(error) {
       return 'The code is invalid. Please check it and try again.';
     case 'auth/code-expired':
       return 'The verification code has expired. Request a new one.';
+    case 'auth/credential-already-in-use':
+      return 'This phone number is already linked to another account. Try signing in or use a different phone number.';
+    case 'auth/phone-number-already-exists':
+      return 'This phone number is already linked to another account. Try signing in or use a different phone number.';
     case 'auth/operation-not-allowed':
       return 'Phone authentication is not enabled for this Firebase project.';
     case 'auth/billing-not-enabled':
       return 'Phone SMS verification is unavailable until billing is enabled in Firebase.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with this phone number using a different sign-in method. Try signing in with that method, then link additional sign-in methods in your profile settings.';
     default:
       return error?.message || 'An unexpected error occurred. Please try again.';
   }
