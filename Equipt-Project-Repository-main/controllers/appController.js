@@ -91,11 +91,45 @@ function showLoginFormPage() {
   renderView(app, renderLoginFormView());
 
   const loginForm = document.getElementById('login-form');
-  loginForm?.addEventListener('submit', (event) => {
+  const loginError = document.getElementById('login-error');
+  const loginSuccess = document.getElementById('login-success');
+
+  const setLoginError = (message) => {
+    if (loginError) {
+      loginError.textContent = message || '';
+      loginError.hidden = !message;
+    }
+  };
+
+  const setLoginSuccess = (message) => {
+    if (loginSuccess) {
+      loginSuccess.textContent = message || '';
+      loginSuccess.hidden = !message;
+    }
+  };
+
+  loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const email = document.getElementById('email')?.value || 'demo@example.com';
-    const password = document.getElementById('password')?.value || 'password123';
-    authService.login(email, password);
+
+    const email = document.getElementById('email')?.value?.trim();
+    const password = document.getElementById('password')?.value || '';
+
+    setLoginError('');
+    setLoginSuccess('');
+
+    if (!email || !password) {
+      setLoginError('Please enter both your email and password.');
+      return;
+    }
+
+    try {
+      await authService.login(email, password);
+      setLoginSuccess('Successful login: welcome to Equipt!');
+      window.location.hash = 'tool-catalog';
+    } catch (error) {
+      console.error('Login failed:', error);
+      setLoginError('Error: Invalid login credentials');
+    }
   });
 
   document.getElementById('back-btn')?.addEventListener('click', () => {
@@ -170,9 +204,35 @@ function showToolCatalogPage() {
   });
 }
 
-function showProfilePage() {
-  renderView(app, renderProfileView());
-  document.getElementById('logout-btn')?.addEventListener('click', () => authService.logout());
+async function showProfilePage() {
+  const currentUser = authService.getCurrentUser();
+
+  if (!currentUser) {
+    window.location.hash = 'login';
+    return;
+  }
+
+  renderView(app, renderProfileView({ email: currentUser.email }));
+
+  try {
+    const profile = await authService.getCurrentUserProfile();
+
+    renderView(app, renderProfileView({
+      firstName: profile?.firstName,
+      lastName: profile?.lastName,
+      email: profile?.email || currentUser.email,
+      phone: profile?.phone,
+      role: profile?.role,
+      createdAt: profile?.createdAt
+    }));
+  } catch (error) {
+    console.error('Unable to load profile data:', error);
+  }
+
+  document.getElementById('logout-btn')?.addEventListener('click', async () => {
+    await authService.logout();
+    window.location.hash = 'login';
+  });
 }
 
 function route() {

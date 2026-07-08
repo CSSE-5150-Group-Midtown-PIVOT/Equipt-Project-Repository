@@ -40,6 +40,26 @@ main {
   max-width: 900px;
 }
 
+.form-error {
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  font-size: 0.95rem;
+}
+
+.form-success {
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  background: #ecfdf3;
+  color: #166534;
+  border: 1px solid #a7f3d0;
+  font-size: 0.95rem;
+}
+
 .registration-shell {
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;

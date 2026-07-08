@@ -9,6 +9,14 @@ export class DatabaseService {
     });
   }
 
+  async getUserProfile(uid) {
+    const userDoc = await doc(firebaseDb, 'users', uid);
+    const snapshot = await getDocs(collection(firebaseDb, 'users'));
+    const match = snapshot.docs.find((docSnapshot) => docSnapshot.id === uid);
+
+    return match ? { id: match.id, ...match.data() } : null;
+  }
+
   async createRecord(collectionName, data) {
     return addDoc(collection(firebaseDb, collectionName), data);
   }

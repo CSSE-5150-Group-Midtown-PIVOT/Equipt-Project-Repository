@@ -8,7 +8,31 @@ export class AuthService {
   }
 
   async login(email, password) {
-    return signInWithEmailAndPassword(firebaseAuth, email, password);
+    const userCredential = await signInWithEmailAndPassword(firebaseAuth, email, password);
+    const existingProfile = await this.databaseService.getUserProfile(userCredential.user.uid);
+
+    if (!existingProfile) {
+      await this.databaseService.createUserProfile(userCredential.user.uid, {
+        email: userCredential.user.email,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    return userCredential;
+  }
+
+  getCurrentUser() {
+    return firebaseAuth.currentUser;
+  }
+
+  async getCurrentUserProfile() {
+    const user = this.getCurrentUser();
+
+    if (!user) {
+      return null;
+    }
+
+    return this.databaseService.getUserProfile(user.uid);
   }
 
   async logout() {

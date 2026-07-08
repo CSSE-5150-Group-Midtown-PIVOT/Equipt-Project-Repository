@@ -16,6 +16,8 @@ export function renderLoginFormView() {
     <section class="card">
       <h2>Log In</h2>
       <form id="login-form">
+        <div id="login-error" class="form-error" role="alert" aria-live="polite" hidden></div>
+        <div id="login-success" class="form-success" role="status" aria-live="polite" hidden></div>
         <label class="form-field">
           Email
           <input type="email" id="email" placeholder="you@example.com" required />
