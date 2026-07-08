@@ -70,8 +70,20 @@ export function renderRegistrationView() {
           </label>
           <label class="form-field">
             Phone Number
-            <input type="tel" name="phone" placeholder="(555) 123-4567" required />
+            <input type="tel" id="phone" name="phone" placeholder="+1 555 123 4567" required />
+            <small>Use international format such as +1 555 123 4567.</small>
           </label>
+          <div class="form-field">
+            <div class="registration-actions">
+              <button id="send-phone-code" type="button">Send verification code</button>
+            </div>
+            <input type="text" id="phone-code" name="phoneCode" placeholder="Enter 6-digit code" inputmode="numeric" autocomplete="one-time-code" />
+            <div class="registration-actions" style="margin-top: 0.5rem;">
+              <button id="verify-phone-code" type="button" class="secondary">Verify code</button>
+            </div>
+            <div id="phone-verification-status" class="form-success" role="status" aria-live="polite" hidden></div>
+            <div id="phone-recaptcha-container"></div>
+          </div>
           <label class="form-field">
             Password
             <input type="password" name="password" placeholder="Create a password" required />

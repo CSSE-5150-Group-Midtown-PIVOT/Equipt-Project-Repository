@@ -12,6 +12,43 @@ const app = document.getElementById('app');
 const authService = new AuthService();
 const databaseService = new DatabaseService();
 
+function getFriendlyAuthError(error) {
+  const code = error?.code || '';
+
+  switch (code) {
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/user-disabled':
+      return 'This user account has been disabled.';
+    case 'auth/user-not-found':
+      return 'No account was found with that email.';
+    case 'auth/wrong-password':
+      return 'The password is incorrect. Please try again.';
+    case 'auth/email-already-in-use':
+      return 'That email is already registered. Try logging in instead.';
+    case 'auth/weak-password':
+      return 'Your password is too weak. Use at least 12 characters and include symbols.';
+    case 'auth/invalid-phone-number':
+      return 'Please enter a valid phone number in international format.';
+    case 'auth/missing-phone-number':
+      return 'Please enter your phone number before sending a verification code.';
+    case 'auth/quota-exceeded':
+      return 'Too many verification attempts. Please wait and try again later.';
+    case 'auth/too-many-requests':
+      return 'Too many requests. Please wait a few minutes and try again.';
+    case 'auth/invalid-verification-code':
+      return 'The code is invalid. Please check it and try again.';
+    case 'auth/code-expired':
+      return 'The verification code has expired. Request a new one.';
+    case 'auth/operation-not-allowed':
+      return 'Phone authentication is not enabled for this Firebase project.';
+    case 'auth/billing-not-enabled':
+      return 'Phone SMS verification is unavailable until billing is enabled in Firebase.';
+    default:
+      return error?.message || 'An unexpected error occurred. Please try again.';
+  }
+}
+
 function showHomePage() {
   renderView(app, renderHomeView(Boolean(authService.getCurrentUser())));
   document.getElementById('go-login')?.addEventListener('click', showLoginPage);
@@ -25,6 +62,72 @@ function showRegistrationPage() {
   renderView(app, renderRegistrationView());
 
   const registrationForm = document.getElementById('registration-form');
+  const sendPhoneCodeButton = document.getElementById('send-phone-code');
+  const verifyPhoneCodeButton = document.getElementById('verify-phone-code');
+  const phoneVerificationStatus = document.getElementById('phone-verification-status');
+  const phoneCodeInput = document.getElementById('phone-code');
+
+  let phoneVerificationId = null;
+  let phoneCredential = null;
+  let phoneVerified = false;
+
+  const setPhoneStatus = (message, isError = false) => {
+    if (!phoneVerificationStatus) {
+      return;
+    }
+
+    phoneVerificationStatus.textContent = message || '';
+    phoneVerificationStatus.hidden = !message;
+    phoneVerificationStatus.classList.toggle('form-error', isError);
+    phoneVerificationStatus.classList.toggle('form-success', !isError);
+  };
+
+  sendPhoneCodeButton?.addEventListener('click', async () => {
+    const phone = document.getElementById('phone')?.value?.trim() || '';
+
+    if (!phone) {
+      setPhoneStatus('Please enter a phone number before sending a code.', true);
+      return;
+    }
+
+    try {
+      setPhoneStatus('Sending verification code...', false);
+      phoneVerificationId = await authService.sendPhoneVerification(phone);
+      phoneCredential = null;
+      phoneVerified = false;
+      phoneCodeInput?.focus();
+      setPhoneStatus('Verification code sent. Enter the code below to confirm your phone number.', false);
+    } catch (error) {
+      console.error('Unable to send phone verification code:', error);
+      setPhoneStatus(getFriendlyAuthError(error), true);
+    }
+  });
+
+  verifyPhoneCodeButton?.addEventListener('click', async () => {
+    const code = phoneCodeInput?.value?.trim() || '';
+
+    if (!phoneVerificationId) {
+      setPhoneStatus('Request a verification code before confirming it.', true);
+      return;
+    }
+
+    if (!code) {
+      setPhoneStatus('Please enter the verification code.', true);
+      return;
+    }
+
+    try {
+      phoneCredential = await authService.buildPhoneCredential(phoneVerificationId, code);
+      phoneVerified = true;
+      setPhoneStatus('Phone number verified successfully.', false);
+    } catch (error) {
+      console.error('Phone verification failed:', error);
+      phoneVerified = false;
+      phoneCredential = null;
+      setPhoneStatus(getFriendlyAuthError(error), true);
+    }
+  });
+
   registrationForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
 
@@ -60,19 +163,24 @@ function showRegistrationPage() {
       return;
     }
 
+    if (!phoneVerified) {
+      setPhoneStatus('Please verify your phone number before creating your account.', true);
+      return;
+    }
+
     try {
       await authService.register(formData.get('email'), password, {
         firstName: formData.get('firstName'),
         lastName: formData.get('lastName'),
         phone: formData.get('phone'),
         role: formData.get('role')
-      });
+      }, phoneCredential);
 
       alert('Account created successfully!');
       window.location.hash = 'login';
     } catch (error) {
       console.error('Registration failed:', error);
-      alert(error?.message || 'Registration failed. Please try again.');
+      alert(getFriendlyAuthError(error));
     }
   });
 
@@ -124,7 +232,7 @@ function showLoginFormPage() {
       }, 1200);
     } catch (error) {
       console.error('Login failed:', error);
-      setLoginError('Error: Invalid login credentials');
+      setLoginError(getFriendlyAuthError(error));
     }
   });
 
