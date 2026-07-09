@@ -20,11 +20,15 @@ function getFriendlyAuthError(error) {
   const inferredCode = code || (message.includes('account-exists-with-different-credential') ? 'auth/account-exists-with-different-credential' :
     message.includes('credential-already-in-use') ? 'auth/credential-already-in-use' :
     message.includes('phone-number-already-exists') ? 'auth/phone-number-already-exists' :
+    (message.includes('invalid-credential') || message.includes('invalid login credentials')) ? 'auth/invalid-credential' :
     '');
 
   switch (inferredCode) {
     case 'auth/invalid-email':
       return 'Please enter a valid email address.';
+    case 'auth/invalid-credential':
+    case 'auth/invalid-login-credentials':
+      return 'incorrect username or password';
     case 'auth/user-disabled':
       return 'This user account has been disabled.';
     case 'auth/user-not-found':
