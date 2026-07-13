@@ -1,18 +1,97 @@
-// AuthService contains Firebase Authentication placeholder code.
-// Add the real Firebase import and configuration values in firebase-config.js.
+import {
+  createUserWithEmailAndPassword,
+  linkWithCredential,
+  PhoneAuthProvider,
+  RecaptchaVerifier,
+  signInWithEmailAndPassword,
+  signOut
+} from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
+import { firebaseAuth } from './firebase-config.js';
+import { DatabaseService } from './databaseService.js';
+
 export class AuthService {
+  constructor() {
+    this.databaseService = new DatabaseService();
+  }
+
   async login(email, password) {
-    console.log('Placeholder login function called for:', email);
-    // Future work: sign in with Firebase Auth here.
+    const userCredential = await signInWithEmailAndPassword(firebaseAuth, email, password);
+    const existingProfile = await this.databaseService.getUserProfile(userCredential.user.uid);
+
+    if (!existingProfile) {
+      await this.databaseService.createUserProfile(userCredential.user.uid, {
+        email: userCredential.user.email,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    return userCredential;
+  }
+
+  getCurrentUser() {
+    return firebaseAuth.currentUser;
+  }
+
+  async getCurrentUserProfile() {
+    const user = this.getCurrentUser();
+
+    if (!user) {
+      return null;
+    }
+
+    return this.databaseService.getUserProfile(user.uid);
   }
 
   async logout() {
-    console.log('Placeholder logout function called.');
-    // Future work: sign out the current user with Firebase Auth here.
+    return signOut(firebaseAuth);
   }
 
-  async register(email, password) {
-    console.log('Placeholder register function called for:', email);
-    // Future work: create a Firebase Auth user here.
+  async sendPhoneVerification(phoneNumber, recaptchaContainerId = 'phone-recaptcha-container') {
+    const existingVerifier = window.recaptchaVerifier;
+    if (existingVerifier) {
+      await existingVerifier.clear();
+    }
+
+    // Use invisible reCAPTCHA verifier created on-demand; avoid extra console output in production.
+    const appVerifier = new RecaptchaVerifier(firebaseAuth, recaptchaContainerId, {
+      size: 'invisible',
+      callback: () => {}
+    });
+
+    window.recaptchaVerifier = appVerifier;
+
+    const phoneProvider = new PhoneAuthProvider(firebaseAuth);
+    return phoneProvider.verifyPhoneNumber(phoneNumber, appVerifier);
+  }
+
+  async buildPhoneCredential(verificationId, code) {
+    return PhoneAuthProvider.credential(verificationId, code);
+  }
+
+  async register(email, password, userData = {}, phoneCredential = null) {
+    const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+
+    if (phoneCredential) {
+      try {
+        await linkWithCredential(userCredential.user, phoneCredential);
+      } catch (linkError) {
+        // Clean up the newly created user to avoid orphaned accounts when linking fails.
+        try {
+          await userCredential.user.delete();
+        } catch (deleteErr) {
+          // ignore deletion errors
+        }
+        throw linkError;
+      }
+    }
+
+    await this.databaseService.createUserProfile(userCredential.user.uid, {
+      ...userData,
+      email,
+      phone: userData.phone || null,
+      createdAt: new Date().toISOString()
+    });
+
+    return userCredential;
   }
 }
