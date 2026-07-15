@@ -18,5 +18,13 @@ export function renderProfileView(profile = {}) {
       </div>
       <button id="logout-btn" class="secondary">Log Out</button>
     </section>
+
+    <section class="card">
+      <div class="profile-section-header">
+        <h3>My Tool Listings</h3>
+        <p>Manage the tools you are currently renting out.</p>
+      </div>
+      <div id="my-listings-shell" class="my-listings-shell"></div>
+    </section>
   `;
 }

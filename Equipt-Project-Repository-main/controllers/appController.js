@@ -294,6 +294,7 @@ function showListToolPage() {
 
   renderView(app, renderListToolView());
 
+  const currentUser = authService.getCurrentUser();
   const form = document.getElementById('list-tool-form');
   const fileInput = document.getElementById('tool-images');
   const previewList = document.getElementById('image-preview-list');
@@ -418,7 +419,7 @@ function showListToolPage() {
     setStatus('Draft saved locally. You can publish it later.', false);
   });
 
-  form?.addEventListener('submit', (event) => {
+  form?.addEventListener('submit', async (event) => {
     event.preventDefault();
 
     const values = requiredFields.map((fieldId) => {
@@ -439,11 +440,407 @@ function showListToolPage() {
       return;
     }
 
-    setStatus('Your listing is ready to publish. Great work!', false);
+    try {
+      setStatus('Publishing your listing to Firestore…', false);
+      const photos = await readImageFilesAsDataUrls(selectedImages.map((entry) => entry.file));
+      const selectedSubcategories = Array.from(document.querySelectorAll('#list-category-checklist input[type="checkbox"]:checked')).map((checkbox) => checkbox.value);
+
+      await databaseService.createRecord('listings', {
+        ownerId: currentUser.uid,
+        ownerEmail: currentUser.email,
+        toolName: document.getElementById('item-name')?.value?.trim() || '',
+        itemDescription: document.getElementById('item-description')?.value?.trim() || '',
+        itemCategory: categorySelect?.value || '',
+        subcategories: selectedSubcategories,
+        itemLocation: document.getElementById('item-location')?.value?.trim() || '',
+        condition: document.getElementById('condition')?.value || '',
+        rentalPrice: Number(document.getElementById('rental-price')?.value || 0),
+        rentalPeriod: document.getElementById('rental-period')?.value || 'day',
+        dailyRate: Number(document.getElementById('rental-price')?.value || 0),
+        availability: document.getElementById('listing-availability')?.value || 'Available now',
+        publicationStatus: 'Published',
+        isPublished: true,
+        photos,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      setStatus('Your listing is now live in Firestore.', false);
+      form.reset();
+      selectedImages = [];
+      renderPreviews();
+      updatePublishState();
+    } catch (error) {
+      console.error('Unable to publish your listing:', error);
+      setStatus('We could not publish your listing. Please try again.', true);
+    }
   });
 
   updateCategoryVisibility();
   updatePublishState();
+}
+
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function readImageFilesAsDataUrls(files = []) {
+  const fileList = Array.isArray(files) ? files : [];
+  const readers = fileList.filter(Boolean).map((file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Unable to read image file.'));
+    reader.readAsDataURL(file);
+  }));
+
+  return Promise.all(readers);
+}
+
+async function loadMyListings(currentUser) {
+  const shell = document.getElementById('my-listings-shell');
+
+  if (!shell || !currentUser) {
+    return;
+  }
+
+  shell.innerHTML = '<p class="empty-state">Loading your listings…</p>';
+
+  try {
+    const allListings = await databaseService.readRecords('listings');
+    const ownerListings = (allListings || []).filter((listing) => listing.ownerId === currentUser.uid);
+
+    if (!ownerListings.length) {
+      shell.innerHTML = '<p class="empty-state">You have not published any listings yet.</p>';
+      return;
+    }
+
+    shell.innerHTML = ownerListings.map((listing) => {
+      const photoUrl = Array.isArray(listing.photos) && listing.photos.length > 0 ? listing.photos[0] : '';
+      const status = listing.publicationStatus || (listing.isPublished ? 'Published' : 'Draft');
+      const rate = listing.dailyRate ?? listing.rentalPrice ?? 0;
+      const availability = listing.availability || 'Available now';
+      const category = listing.category || listing.itemCategory || 'Uncategorized';
+
+      return `
+        <article class="listing-card" data-listing-id="${escapeHtml(listing.id)}">
+          <div class="listing-card__body">
+            <div class="listing-card__image">
+              ${photoUrl ? `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(listing.toolName || 'Tool photo')}" />` : '<span>No photo</span>'}
+            </div>
+            <div class="listing-card__details">
+              <h4>${escapeHtml(listing.toolName || 'Unnamed listing')}</h4>
+              <p><strong>Category:</strong> ${escapeHtml(category)}</p>
+              <p><strong>Daily rate:</strong> $${escapeHtml(Number(rate).toFixed(2))}</p>
+              <p><strong>Availability:</strong> ${escapeHtml(availability)}</p>
+              <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+            </div>
+          </div>
+          <div class="listing-card__actions">
+            <button type="button" class="secondary" data-action="edit-listing" data-listing-id="${escapeHtml(listing.id)}">Edit</button>
+            <button type="button" class="secondary" data-action="delete-listing" data-listing-id="${escapeHtml(listing.id)}">Delete</button>
+          </div>
+        </article>
+      `;
+    }).join('');
+
+    shell.querySelectorAll('[data-action="edit-listing"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const listingId = button.getAttribute('data-listing-id');
+        const listing = ownerListings.find((entry) => entry.id === listingId);
+
+        if (!listing) {
+          return;
+        }
+
+        const card = button.closest('.listing-card');
+        if (!card) {
+          return;
+        }
+
+        const statusValue = listing.publicationStatus || (listing.isPublished ? 'Published' : 'Draft');
+        const subcategoryValue = Array.isArray(listing.subcategories) ? listing.subcategories.join(', ') : '';
+        card.innerHTML = `
+          <form class="listing-edit-form" data-listing-id="${escapeHtml(listing.id)}">
+            <div class="form-field">
+              <label for="edit-tool-name">Tool name</label>
+              <input id="edit-tool-name" name="toolName" type="text" value="${escapeHtml(listing.toolName || '')}" required />
+            </div>
+            <div class="form-field">
+              <label for="edit-tool-description">Description</label>
+              <textarea id="edit-tool-description" name="itemDescription" rows="4">${escapeHtml(listing.itemDescription || '')}</textarea>
+            </div>
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="edit-item-category">Category</label>
+                <select id="edit-item-category" name="itemCategory">
+                  <option value="power-tools" ${listing.itemCategory === 'power-tools' ? 'selected' : ''}>Power Tools</option>
+                  <option value="lawn-garden" ${listing.itemCategory === 'lawn-garden' ? 'selected' : ''}>Lawn & Garden Equipment</option>
+                  <option value="construction-heavy" ${listing.itemCategory === 'construction-heavy' ? 'selected' : ''}>Construction & Heavy Equipment</option>
+                  <option value="automotive" ${listing.itemCategory === 'automotive' ? 'selected' : ''}>Automotive Tools</option>
+                  <option value="plumbing" ${listing.itemCategory === 'plumbing' ? 'selected' : ''}>Plumbing Tools</option>
+                  <option value="electrical" ${listing.itemCategory === 'electrical' ? 'selected' : ''}>Electrical Tools</option>
+                  <option value="painting-finishing" ${listing.itemCategory === 'painting-finishing' ? 'selected' : ''}>Painting & Finishing</option>
+                  <option value="cleaning" ${listing.itemCategory === 'cleaning' ? 'selected' : ''}>Cleaning Equipment</option>
+                  <option value="moving-hauling" ${listing.itemCategory === 'moving-hauling' ? 'selected' : ''}>Moving & Hauling</option>
+                  <option value="woodworking" ${listing.itemCategory === 'woodworking' ? 'selected' : ''}>Woodworking</option>
+                  <option value="specialty-seasonal" ${listing.itemCategory === 'specialty-seasonal' ? 'selected' : ''}>Specialty/Seasonal</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="edit-availability">Availability</label>
+                <select id="edit-availability" name="availability">
+                  <option value="Available now" ${listing.availability === 'Available now' ? 'selected' : ''}>Available now</option>
+                  <option value="Reserved" ${listing.availability === 'Reserved' ? 'selected' : ''}>Reserved</option>
+                  <option value="Pending pickup" ${listing.availability === 'Pending pickup' ? 'selected' : ''}>Pending pickup</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="edit-rental-price">Daily rate</label>
+                <input id="edit-rental-price" name="dailyRate" type="number" min="1" step="0.01" value="${escapeHtml(Number(listing.dailyRate ?? listing.rentalPrice ?? 0).toFixed(2))}" required />
+              </div>
+              <div class="form-field">
+                <label for="edit-publication-status">Publication status</label>
+                <select id="edit-publication-status" name="publicationStatus">
+                  <option value="Published" ${statusValue === 'Published' ? 'selected' : ''}>Published</option>
+                  <option value="Draft" ${statusValue === 'Draft' ? 'selected' : ''}>Draft</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-field">
+              <label for="edit-subcategories">Subcategories</label>
+              <input id="edit-subcategories" name="subcategories" type="text" value="${escapeHtml(subcategoryValue)}" placeholder="Separate with commas" />
+            </div>
+            <div class="form-field">
+              <label for="edit-photos">Replace photos</label>
+              <input id="edit-photos" name="photos" type="file" accept="image/*" multiple />
+            </div>
+            <div class="listing-edit-form__actions">
+              <button type="submit" class="primary">Save Changes</button>
+              <button type="button" class="secondary" data-action="cancel-edit">Cancel</button>
+            </div>
+          </form>
+        `;
+
+        const editForm = card.querySelector('.listing-edit-form');
+        editForm?.addEventListener('submit', async (event) => {
+          event.preventDefault();
+
+          if (!currentUser || listing.ownerId !== currentUser.uid) {
+            window.alert('You can only edit your own listings.');
+            return;
+          }
+
+          const formData = new FormData(editForm);
+          const selectedPhotos = Array.from(editForm.querySelector('#edit-photos')?.files || []);
+          const nextPhotos = selectedPhotos.length > 0 ? await readImageFilesAsDataUrls(selectedPhotos) : (Array.isArray(listing.photos) ? listing.photos : []);
+          const nextPublicationStatus = formData.get('publicationStatus') || 'Published';
+          const nextDailyRate = Number(formData.get('dailyRate') || 0);
+          const nextSubcategories = String(formData.get('subcategories') || '')
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+
+          await databaseService.updateRecord('listings', listing.id, {
+            toolName: formData.get('toolName') || listing.toolName || '',
+            itemDescription: formData.get('itemDescription') || listing.itemDescription || '',
+            itemCategory: formData.get('itemCategory') || listing.itemCategory || '',
+            subcategories: nextSubcategories,
+            availability: formData.get('availability') || listing.availability || 'Available now',
+            dailyRate: nextDailyRate,
+            rentalPrice: nextDailyRate,
+            publicationStatus: nextPublicationStatus,
+            isPublished: nextPublicationStatus === 'Published',
+            photos: nextPhotos,
+            updatedAt: new Date().toISOString()
+          });
+
+          await loadMyListings(currentUser);
+        });
+
+        card.querySelector('[data-action="cancel-edit"]')?.addEventListener('click', async () => {
+          await loadMyListings(currentUser);
+        });
+      });
+    });
+
+    shell.querySelectorAll('[data-action="delete-listing"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const listingId = button.getAttribute('data-listing-id');
+        const listing = ownerListings.find((entry) => entry.id === listingId);
+
+        if (!listing) {
+          return;
+        }
+
+        if (!window.confirm(`Delete ${listing.toolName || 'this listing'} permanently?`)) {
+          return;
+        }
+
+        await databaseService.deleteRecord('listings', listing.id);
+        await loadMyListings(currentUser);
+      });
+    });
+  } catch (error) {
+    console.error('Unable to load your listings:', error);
+    shell.innerHTML = '<p class="empty-state">We could not load your listings right now.</p>';
+  }
+}
+
+function isPublishedListing(listing = {}) {
+  return listing.publicationStatus === 'Published' || Boolean(listing.isPublished);
+}
+
+function getCatalogFilterState() {
+  const searchInput = document.getElementById('tool-search');
+  const locationInput = document.getElementById('tool-location');
+  const categorySelect = document.getElementById('main-category-select');
+  const selectedSubcategories = Array.from(document.querySelectorAll('#category-checklist .subcategory-group.visible input[type="checkbox"]:checked')).map((checkbox) => checkbox.value.toLowerCase());
+  const selectedConditions = Array.from(document.querySelectorAll('#optional-filters input[name="condition"]:checked')).map((checkbox) => checkbox.value);
+
+  return {
+    searchText: searchInput?.value?.trim().toLowerCase() || '',
+    location: locationInput?.value?.trim() || '',
+    category: categorySelect?.value || '',
+    selectedSubcategories,
+    selectedConditions,
+    priceMin: Number(document.getElementById('price-min-input')?.value || 0),
+    priceMax: Number(document.getElementById('price-max-input')?.value || 500),
+    availabilityNowChecked: Boolean(document.getElementById('available-now')?.checked),
+    rentalStart: document.getElementById('rental-start')?.value || '',
+    rentalEnd: document.getElementById('rental-end')?.value || ''
+  };
+}
+
+function matchesCatalogFilters(listing = {}, filters = {}) {
+  const searchText = filters.searchText || '';
+  const locationText = filters.location || '';
+  const categoryText = filters.category || '';
+  const selectedSubcategories = filters.selectedSubcategories || [];
+  const selectedConditions = filters.selectedConditions || [];
+  const priceMin = Number(filters.priceMin || 0);
+  const priceMax = Number(filters.priceMax || 500);
+  const availabilityNowChecked = Boolean(filters.availabilityNowChecked);
+  const rentalStart = filters.rentalStart || '';
+  const rentalEnd = filters.rentalEnd || '';
+
+  const searchableText = [
+    listing.toolName,
+    listing.itemDescription,
+    listing.itemCategory,
+    listing.category,
+    Array.isArray(listing.subcategories) ? listing.subcategories.join(' ') : ''
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  if (searchText && !searchableText.includes(searchText)) {
+    return false;
+  }
+
+  if (categoryText && (listing.itemCategory || listing.category || '') !== categoryText) {
+    return false;
+  }
+
+  if (selectedSubcategories.length > 0 && !(Array.isArray(listing.subcategories) ? listing.subcategories.map((value) => value.toLowerCase()) : []).some((value) => selectedSubcategories.includes(value))) {
+    return false;
+  }
+
+  if (selectedConditions.length > 0 && !selectedConditions.includes(listing.condition || '')) {
+    return false;
+  }
+
+  const dailyRate = Number(listing.dailyRate ?? listing.rentalPrice ?? 0);
+  if (dailyRate < priceMin || dailyRate > priceMax) {
+    return false;
+  }
+
+  if (locationText) {
+    const listingLocation = String(listing.itemLocation || '').trim();
+    if (!listingLocation || !listingLocation.includes(locationText)) {
+      return false;
+    }
+  }
+
+  if (availabilityNowChecked && String(listing.availability || 'Available now').toLowerCase() !== 'available now') {
+    return false;
+  }
+
+  if (rentalStart && listing.availability && String(listing.availability).toLowerCase() === 'reserved') {
+    return false;
+  }
+
+  if (rentalEnd && listing.availability && String(listing.availability).toLowerCase() === 'pending pickup') {
+    return false;
+  }
+
+  return true;
+}
+
+async function loadCatalogListings() {
+  const results = document.querySelector('.catalog-results');
+  const feedback = document.getElementById('catalog-feedback');
+
+  if (!results || !feedback) {
+    return;
+  }
+
+  feedback.textContent = 'Loading published listings…';
+  feedback.hidden = false;
+  results.innerHTML = '<div class="catalog-results__empty">Loading published tools…</div>';
+
+  try {
+    const allListings = await databaseService.readRecords('listings');
+    const publishedListings = (allListings || []).filter(isPublishedListing);
+    const filters = getCatalogFilterState();
+    const visibleListings = publishedListings.filter((listing) => matchesCatalogFilters(listing, filters));
+
+    if (!visibleListings.length) {
+      results.innerHTML = '<div class="catalog-results__empty">No tools found</div>';
+      feedback.textContent = 'No tools found';
+      return;
+    }
+
+    results.innerHTML = visibleListings.map((listing) => {
+      const photoUrl = Array.isArray(listing.photos) && listing.photos.length > 0 ? listing.photos[0] : '';
+      const toolName = listing.toolName || 'Untitled listing';
+      const description = listing.itemDescription || 'No description provided yet.';
+      const categoryLabel = listing.itemCategory || listing.category || 'Uncategorized';
+      const dailyRate = Number(listing.dailyRate ?? listing.rentalPrice ?? 0).toFixed(2);
+      const availability = listing.availability || 'Available now';
+      const status = listing.publicationStatus || (listing.isPublished ? 'Published' : 'Draft');
+
+      return `
+        <article class="catalog-result-card">
+          <div class="catalog-result-card__media">
+            ${photoUrl ? `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(toolName)}" />` : '<div class="catalog-result-card__placeholder">No photo</div>'}
+          </div>
+          <div class="catalog-result-card__content">
+            <div class="catalog-result-card__header">
+              <h4>${escapeHtml(toolName)}</h4>
+              <span class="catalog-result-card__price">$${escapeHtml(dailyRate)}/day</span>
+            </div>
+            <p>${escapeHtml(description)}</p>
+            <div class="catalog-result-card__meta">
+              <span>${escapeHtml(categoryLabel)}</span>
+              <span>${escapeHtml(availability)}</span>
+              <span>${escapeHtml(status)}</span>
+            </div>
+          </div>
+        </article>
+      `;
+    }).join('');
+
+    feedback.textContent = `Showing ${visibleListings.length} published listing${visibleListings.length === 1 ? '' : 's'}.`;
+  } catch (error) {
+    console.error('Unable to load published listings:', error);
+    results.innerHTML = '<div class="catalog-results__empty">We could not load listings right now.</div>';
+    feedback.textContent = 'Unable to load listings from Firestore.';
+  }
 }
 
 function showToolCatalogPage() {
@@ -460,6 +857,7 @@ function showToolCatalogPage() {
   const priceMaxInput = document.getElementById('price-max-input');
   const priceRangeDisplay = document.getElementById('price-range-display');
   const feedback = document.getElementById('catalog-feedback');
+  const searchInput = document.getElementById('tool-search');
   const searchButton = document.getElementById('search-tools');
   const applyFiltersButton = document.getElementById('apply-filters');
   const clearFiltersButton = document.getElementById('clear-filters');
@@ -584,15 +982,26 @@ function showToolCatalogPage() {
     });
   });
 
-  searchButton?.addEventListener('click', () => {
-    setFeedback('Showing results for your current search.');
+  const submitCatalogSearch = async () => {
+    await loadCatalogListings();
+  };
+
+  searchInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitCatalogSearch();
+    }
   });
 
-  applyFiltersButton?.addEventListener('click', () => {
-    setFeedback('Filters applied.');
+  searchButton?.addEventListener('click', async () => {
+    await submitCatalogSearch();
   });
 
-  clearFiltersButton?.addEventListener('click', () => {
+  applyFiltersButton?.addEventListener('click', async () => {
+    await loadCatalogListings();
+  });
+
+  clearFiltersButton?.addEventListener('click', async () => {
     const formFields = document.querySelectorAll('#optional-filters input, #optional-filters select');
     formFields.forEach((element) => {
       if (element.type === 'checkbox') {
@@ -610,11 +1019,13 @@ function showToolCatalogPage() {
     categorySelect.value = '';
     updateCategoryVisibility();
     updatePriceRange();
+    await loadCatalogListings();
     setFeedback('Filters cleared.');
   });
 
   updateCategoryVisibility();
   updatePriceRange();
+  loadCatalogListings();
 }
 
 async function showProfilePage() {
@@ -638,6 +1049,8 @@ async function showProfilePage() {
       role: profile?.role,
       createdAt: profile?.createdAt
     }));
+
+    await loadMyListings(currentUser);
   } catch (error) {
     console.error('Unable to load profile data:', error);
   }

@@ -193,6 +193,17 @@ export function renderListToolView() {
             </div>
 
             <div class="form-field">
+              <label for="listing-availability">Availability</label>
+              <select id="listing-availability" name="availability">
+                <option value="Available now">Available now</option>
+                <option value="Reserved">Reserved</option>
+                <option value="Pending pickup">Pending pickup</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-field">
               <label for="rental-price">Rental Price <span class="required-mark">*</span></label>
               <div class="price-input-row">
                 <span class="price-currency">$</span>
