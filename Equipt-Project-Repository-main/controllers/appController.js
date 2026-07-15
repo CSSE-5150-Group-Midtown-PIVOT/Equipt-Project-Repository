@@ -456,8 +456,37 @@ function showToolCatalogPage() {
   const optionalFilters = document.getElementById('optional-filters');
   const rateMinInput = document.getElementById('rate-min');
   const rateMaxInput = document.getElementById('rate-max');
-  const minValueEl = document.getElementById('rate-min-value');
-  const maxValueEl = document.getElementById('rate-max-value');
+  const priceMinInput = document.getElementById('price-min-input');
+  const priceMaxInput = document.getElementById('price-max-input');
+  const priceRangeDisplay = document.getElementById('price-range-display');
+  const feedback = document.getElementById('catalog-feedback');
+  const searchButton = document.getElementById('search-tools');
+  const applyFiltersButton = document.getElementById('apply-filters');
+  const clearFiltersButton = document.getElementById('clear-filters');
+
+  const clampValues = () => {
+    const minValue = Number(priceMinInput?.value || rateMinInput?.value || 0);
+    const maxValue = Number(priceMaxInput?.value || rateMaxInput?.value || 500);
+    const lower = Math.min(Math.max(minValue, 0), 500);
+    const upper = Math.min(Math.max(maxValue, 0), 500);
+    const safeLower = Math.min(lower, upper);
+    const safeUpper = Math.max(upper, lower);
+
+    if (priceMinInput) {
+      priceMinInput.value = safeLower;
+    }
+    if (priceMaxInput) {
+      priceMaxInput.value = safeUpper;
+    }
+    if (rateMinInput) {
+      rateMinInput.value = safeLower;
+    }
+    if (rateMaxInput) {
+      rateMaxInput.value = safeUpper;
+    }
+
+    return { min: safeLower, max: safeUpper };
+  };
 
   const updateCategoryVisibility = () => {
     const selectedCategory = categorySelect?.value || '';
@@ -471,15 +500,29 @@ function showToolCatalogPage() {
     }
   };
 
-  const updateRateLabels = () => {
-    if (!rateMinInput || !rateMaxInput || !minValueEl || !maxValueEl) {
+  const updatePriceRange = () => {
+    const { min, max } = clampValues();
+    if (priceRangeDisplay) {
+      priceRangeDisplay.textContent = `$${min} – $${max} per day`;
+    }
+
+    const shell = document.querySelector('.range-slider-shell');
+    const startPercent = (min / 500) * 100;
+    const endPercent = (max / 500) * 100;
+
+    if (shell) {
+      shell.style.setProperty('--range-start', `${startPercent}%`);
+      shell.style.setProperty('--range-end', `${endPercent}%`);
+    }
+  };
+
+  const setFeedback = (message) => {
+    if (!feedback) {
       return;
     }
 
-    const minValue = Number(rateMinInput.value);
-    const maxValue = Number(rateMaxInput.value);
-    minValueEl.textContent = `$${minValue}`;
-    maxValueEl.textContent = `$${maxValue}`;
+    feedback.textContent = message;
+    feedback.hidden = !message;
   };
 
   toggleFiltersButton?.addEventListener('click', () => {
@@ -488,29 +531,90 @@ function showToolCatalogPage() {
     }
 
     const isHidden = optionalFilters.classList.toggle('hidden');
-    toggleFiltersButton.textContent = isHidden ? 'Filter' : 'Hide Filters';
+    toggleFiltersButton.textContent = isHidden ? '⚲ Filter' : 'Hide Filters';
   });
 
   categorySelect?.addEventListener('change', updateCategoryVisibility);
-  rateMinInput?.addEventListener('input', () => {
-    if (Number(rateMinInput.value) > Number(rateMaxInput.value)) {
-      rateMaxInput.value = rateMinInput.value;
+
+  const syncRangeInputs = (sourceInput) => {
+    const minValue = Number(priceMinInput?.value || 0);
+    const maxValue = Number(priceMaxInput?.value || 500);
+    const nextMin = sourceInput === rateMinInput ? Math.min(Number(sourceInput.value), maxValue) : Math.min(minValue, maxValue);
+    const nextMax = sourceInput === rateMaxInput ? Math.max(Number(sourceInput.value), minValue) : Math.max(maxValue, minValue);
+
+    if (priceMinInput) {
+      priceMinInput.value = nextMin;
     }
-    updateRateLabels();
+    if (priceMaxInput) {
+      priceMaxInput.value = nextMax;
+    }
+    if (rateMinInput) {
+      rateMinInput.value = nextMin;
+    }
+    if (rateMaxInput) {
+      rateMaxInput.value = nextMax;
+    }
+
+    updatePriceRange();
+  };
+
+  [rateMinInput, rateMaxInput, priceMinInput, priceMaxInput].forEach((input) => {
+    input?.addEventListener('input', () => {
+      if (input === rateMinInput || input === rateMaxInput) {
+        syncRangeInputs(input);
+      } else {
+        const minValue = Number(priceMinInput?.value || 0);
+        const maxValue = Number(priceMaxInput?.value || 500);
+        const safeMin = Math.min(minValue, maxValue);
+        const safeMax = Math.max(minValue, maxValue);
+        if (priceMinInput) {
+          priceMinInput.value = safeMin;
+        }
+        if (priceMaxInput) {
+          priceMaxInput.value = safeMax;
+        }
+        if (rateMinInput) {
+          rateMinInput.value = safeMin;
+        }
+        if (rateMaxInput) {
+          rateMaxInput.value = safeMax;
+        }
+        updatePriceRange();
+      }
+    });
   });
-  rateMaxInput?.addEventListener('input', () => {
-    if (Number(rateMaxInput.value) < Number(rateMinInput.value)) {
-      rateMinInput.value = rateMaxInput.value;
-    }
-    updateRateLabels();
+
+  searchButton?.addEventListener('click', () => {
+    setFeedback('Showing results for your current search.');
+  });
+
+  applyFiltersButton?.addEventListener('click', () => {
+    setFeedback('Filters applied.');
+  });
+
+  clearFiltersButton?.addEventListener('click', () => {
+    const formFields = document.querySelectorAll('#optional-filters input, #optional-filters select');
+    formFields.forEach((element) => {
+      if (element.type === 'checkbox') {
+        element.checked = false;
+      } else if (element.type === 'date') {
+        element.value = '';
+      } else if (element.id === 'price-min-input' || element.id === 'price-max-input') {
+        element.value = element.id === 'price-min-input' ? '0' : '500';
+      } else if (element.id === 'rate-min' || element.id === 'rate-max') {
+        element.value = element.id === 'rate-min' ? '0' : '500';
+      } else if (element.tagName === 'SELECT') {
+        element.value = '';
+      }
+    });
+    categorySelect.value = '';
+    updateCategoryVisibility();
+    updatePriceRange();
+    setFeedback('Filters cleared.');
   });
 
   updateCategoryVisibility();
-  updateRateLabels();
-
-  document.getElementById('create-record')?.addEventListener('click', () => {
-    databaseService.createRecord('starterCollection', { title: 'Sample record', createdAt: new Date().toISOString() });
-  });
+  updatePriceRange();
 }
 
 async function showProfilePage() {
