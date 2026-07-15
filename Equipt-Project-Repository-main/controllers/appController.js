@@ -3,6 +3,7 @@ import { renderHomeView } from '../views/homeView.js';
 import { renderLoginView, renderLoginFormView, renderRegistrationView } from '../views/loginView.js';
 import { renderDashboardView } from '../views/dashboardView.js';
 import { renderProfileView } from '../views/profileView.js';
+import { renderListToolView } from '../views/listToolView.js';
 import { AuthService } from '../services/authService.js';
 import { DatabaseService } from '../services/databaseService.js';
 
@@ -64,6 +65,18 @@ function getFriendlyAuthError(error) {
     default:
       return error?.message || 'An unexpected error occurred. Please try again.';
   }
+}
+
+function getStoredAuthRedirect() {
+  const redirectTarget = sessionStorage.getItem('redirectAfterAuth');
+  sessionStorage.removeItem('redirectAfterAuth');
+  return redirectTarget;
+}
+
+function getStoredAuthMessage() {
+  const message = sessionStorage.getItem('authPromptMessage');
+  sessionStorage.removeItem('authPromptMessage');
+  return message || '';
 }
 
 function showHomePage() {
@@ -193,8 +206,9 @@ function showRegistrationPage() {
         role: formData.get('role')
       }, phoneCredential);
 
-      alert('Account created successfully!');
-      window.location.hash = 'login';
+      sessionStorage.setItem('redirectAfterAuth', 'list-tool');
+      sessionStorage.setItem('authPromptMessage', 'Sign in or create an account to list your tools.');
+      window.location.hash = 'login-form';
     } catch (error) {
       console.error('Registration failed:', error);
       alert(getFriendlyAuthError(error));
@@ -212,6 +226,7 @@ function showLoginFormPage() {
   const loginForm = document.getElementById('login-form');
   const loginError = document.getElementById('login-error');
   const loginSuccess = document.getElementById('login-success');
+  const promptMessage = getStoredAuthMessage();
 
   const setLoginError = (message) => {
     if (loginError) {
@@ -226,6 +241,10 @@ function showLoginFormPage() {
       loginSuccess.hidden = !message;
     }
   };
+
+  if (promptMessage) {
+    setLoginSuccess(promptMessage);
+  }
 
   loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -243,10 +262,11 @@ function showLoginFormPage() {
 
     try {
       await authService.login(email, password);
+      const redirectTarget = getStoredAuthRedirect() || 'tool-catalog';
       setLoginSuccess('Successful login: welcome to Equipt!');
       window.setTimeout(() => {
-        window.location.hash = 'tool-catalog';
-      }, 1200);
+        window.location.hash = redirectTarget;
+      }, 800);
     } catch (error) {
       console.error('Login failed:', error);
       setLoginError(getFriendlyAuthError(error));
@@ -254,12 +274,176 @@ function showLoginFormPage() {
   });
 
   document.getElementById('register-from-login')?.addEventListener('click', () => {
+    sessionStorage.setItem('redirectAfterAuth', 'list-tool');
+    sessionStorage.setItem('authPromptMessage', 'Sign in or create an account to list your tools.');
     window.location.hash = 'register';
   });
 
   document.getElementById('back-btn')?.addEventListener('click', () => {
     window.location.hash = 'home';
   });
+}
+
+function showListToolPage() {
+  if (!authService.getCurrentUser()) {
+    sessionStorage.setItem('redirectAfterAuth', 'list-tool');
+    sessionStorage.setItem('authPromptMessage', 'Sign in or create an account to list your tools.');
+    window.location.hash = 'login-form';
+    return;
+  }
+
+  renderView(app, renderListToolView());
+
+  const form = document.getElementById('list-tool-form');
+  const fileInput = document.getElementById('tool-images');
+  const previewList = document.getElementById('image-preview-list');
+  const statusEl = document.getElementById('listing-status');
+  const publishButton = document.getElementById('publish-listing-btn');
+  const saveDraftButton = document.getElementById('save-draft-btn');
+  const categorySelect = document.getElementById('item-category');
+  const subcategoryGroups = document.querySelectorAll('#list-category-checklist .subcategory-group');
+  const categoryPrompt = document.querySelector('#list-category-checklist .category-prompt');
+  const requiredFields = ['item-name', 'item-description', 'item-location', 'condition', 'rental-price'];
+  let selectedImages = [];
+
+  const setStatus = (message, isError = false) => {
+    if (!statusEl) {
+      return;
+    }
+
+    statusEl.textContent = message || '';
+    statusEl.hidden = !message;
+    statusEl.classList.toggle('form-error', isError);
+    statusEl.classList.toggle('form-success', !isError && Boolean(message));
+  };
+
+  const updateCategoryVisibility = () => {
+    const selectedCategory = categorySelect?.value || '';
+
+    subcategoryGroups.forEach((group) => {
+      const isVisible = group.dataset.category === selectedCategory;
+      group.classList.toggle('visible', isVisible);
+    });
+
+    if (categoryPrompt) {
+      categoryPrompt.style.display = selectedCategory ? 'none' : 'block';
+    }
+  };
+
+  const updatePublishState = () => {
+    if (!publishButton) {
+      return;
+    }
+
+    const values = requiredFields.map((fieldId) => {
+      const element = document.getElementById(fieldId);
+      return element ? element.value.trim() : '';
+    });
+
+    const hasRequiredValues = values.every(Boolean);
+    const hasPrice = Number(document.getElementById('rental-price')?.value || 0) > 0;
+    const hasImages = selectedImages.length > 0;
+    const hasMainCategory = Boolean(categorySelect?.value);
+    const hasSubcategory = Array.from(subcategoryGroups).some((group) => {
+      return group.classList.contains('visible') && group.querySelector('input[type="checkbox"]:checked');
+    });
+
+    publishButton.disabled = !(hasRequiredValues && hasPrice && hasImages && hasMainCategory && hasSubcategory);
+  };
+
+  const renderPreviews = () => {
+    if (!previewList) {
+      return;
+    }
+
+    previewList.innerHTML = '';
+
+    selectedImages.forEach((entry, index) => {
+      const card = document.createElement('div');
+      card.className = 'image-preview-card';
+
+      const image = document.createElement('img');
+      image.src = entry.url;
+      image.alt = `Preview ${index + 1}`;
+      card.appendChild(image);
+
+      const meta = document.createElement('div');
+      meta.className = 'image-preview-card__meta';
+      meta.innerHTML = `<span>${index === 0 ? 'Cover' : 'Photo'}</span><span>${entry.file.name}</span>`;
+      card.appendChild(meta);
+
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'image-remove-btn';
+      removeButton.textContent = 'Remove';
+      removeButton.addEventListener('click', () => {
+        URL.revokeObjectURL(entry.url);
+        selectedImages.splice(index, 1);
+        renderPreviews();
+        updatePublishState();
+      });
+      card.appendChild(removeButton);
+      previewList.appendChild(card);
+    });
+  };
+
+  fileInput?.addEventListener('change', (event) => {
+    const files = Array.from(event.target.files || []);
+    selectedImages = [...selectedImages, ...files.map((file) => ({ file, url: URL.createObjectURL(file) }))];
+    renderPreviews();
+    updatePublishState();
+    event.target.value = '';
+  });
+
+  categorySelect?.addEventListener('change', () => {
+    updateCategoryVisibility();
+    updatePublishState();
+  });
+
+  subcategoryGroups.forEach((group) => {
+    group.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+      checkbox.addEventListener('change', updatePublishState);
+    });
+  });
+
+  form?.querySelectorAll('input, textarea, select').forEach((element) => {
+    element.addEventListener('input', updatePublishState);
+    element.addEventListener('change', updatePublishState);
+  });
+
+  saveDraftButton?.addEventListener('click', () => {
+    const draftData = new FormData(form);
+    const draftPayload = Object.fromEntries(draftData.entries());
+    localStorage.setItem('equipt-draft-listing', JSON.stringify(draftPayload));
+    setStatus('Draft saved locally. You can publish it later.', false);
+  });
+
+  form?.addEventListener('submit', (event) => {
+    event.preventDefault();
+
+    const values = requiredFields.map((fieldId) => {
+      const element = document.getElementById(fieldId);
+      return element ? element.value.trim() : '';
+    });
+
+    const hasRequiredValues = values.every(Boolean);
+    const hasPrice = Number(document.getElementById('rental-price')?.value || 0) > 0;
+    const hasImages = selectedImages.length > 0;
+    const hasMainCategory = Boolean(categorySelect?.value);
+    const hasSubcategory = Array.from(subcategoryGroups).some((group) => {
+      return group.classList.contains('visible') && group.querySelector('input[type="checkbox"]:checked');
+    });
+
+    if (!hasRequiredValues || !hasPrice || !hasImages || !hasMainCategory || !hasSubcategory) {
+      setStatus('Please complete all required fields, select a main category and at least one subcategory, and add at least one photo before publishing.', true);
+      return;
+    }
+
+    setStatus('Your listing is ready to publish. Great work!', false);
+  });
+
+  updateCategoryVisibility();
+  updatePublishState();
 }
 
 function showToolCatalogPage() {
@@ -371,6 +555,8 @@ function route() {
     showRegistrationPage();
   } else if (hash === 'tool-catalog') {
     showToolCatalogPage();
+  } else if (hash === 'list-tool') {
+    showListToolPage();
   } else if (hash === 'profile') {
     showProfilePage();
   } else {

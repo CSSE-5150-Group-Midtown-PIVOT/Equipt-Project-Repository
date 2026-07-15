@@ -9,6 +9,7 @@ export function renderHomeView(isLoggedIn = false) {
         <div class="home-actions minimal-hero__actions">
           ${isLoggedIn ? '' : '<a class="home-btn home-btn--primary" href="#login">Log In</a>'}
           <a class="home-btn home-btn--secondary" href="#tool-catalog">Browse Tools</a>
+          <a class="home-btn home-btn--accent" href="#list-tool">List Tools</a>
         </div>
       </div>
     </section>
