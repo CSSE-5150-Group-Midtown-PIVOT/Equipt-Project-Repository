@@ -816,6 +816,62 @@ button.secondary {
   color: #64748b;
 }
 
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.profile-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.profile-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #475569;
+  font-weight: 600;
+}
+
+.profile-form__field span {
+  font-size: 0.92rem;
+}
+
+.profile-form__field input,
+.profile-form__field select {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font: inherit;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.profile-form__field--full {
+  grid-column: 1 / -1;
+}
+
+.profile-status {
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+}
+
+.profile-form-actions {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.profile-form-actions--top {
+  margin-bottom: 0.75rem;
+}
+
 .my-listings-shell {
   display: grid;
   gap: 0.9rem;

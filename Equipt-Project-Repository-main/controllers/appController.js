@@ -2,7 +2,7 @@ import { renderView } from '../views/viewRenderer.js';
 import { renderHomeView } from '../views/homeView.js';
 import { renderLoginView, renderLoginFormView, renderRegistrationView } from '../views/loginView.js';
 import { renderDashboardView } from '../views/dashboardView.js';
-import { renderProfileView } from '../views/profileView.js';
+import { renderProfileUpdateView, renderProfileView } from '../views/profileView.js';
 import { renderListToolView } from '../views/listToolView.js';
 import { AuthService } from '../services/authService.js';
 import { DatabaseService } from '../services/databaseService.js';
@@ -1036,29 +1036,137 @@ async function showProfilePage() {
     return;
   }
 
-  renderView(app, renderProfileView({ email: currentUser.email }));
+  const renderProfileShell = (profileData = {}) => {
+    renderView(app, renderProfileView({
+      firstName: profileData.firstName,
+      lastName: profileData.lastName,
+      email: profileData.email || currentUser.email,
+      phone: profileData.phone,
+      role: profileData.role || 'Member',
+      createdAt: profileData.createdAt
+    }));
+
+    document.getElementById('go-update-profile-btn')?.addEventListener('click', () => {
+      window.location.hash = 'profile-update';
+    });
+
+    document.getElementById('logout-btn')?.addEventListener('click', async () => {
+      await authService.logout();
+      window.location.hash = 'login';
+    });
+  };
+
+  renderProfileShell({ email: currentUser.email });
 
   try {
     const profile = await authService.getCurrentUserProfile();
 
-    renderView(app, renderProfileView({
+    renderProfileShell({
       firstName: profile?.firstName,
       lastName: profile?.lastName,
       email: profile?.email || currentUser.email,
       phone: profile?.phone,
       role: profile?.role,
       createdAt: profile?.createdAt
-    }));
+    });
 
     await loadMyListings(currentUser);
   } catch (error) {
     console.error('Unable to load profile data:', error);
   }
+}
 
-  document.getElementById('logout-btn')?.addEventListener('click', async () => {
-    await authService.logout();
+async function showProfileUpdatePage() {
+  const currentUser = authService.getCurrentUser();
+
+  if (!currentUser) {
     window.location.hash = 'login';
-  });
+    return;
+  }
+
+  const renderUpdateView = (profileData = {}) => {
+    renderView(app, renderProfileUpdateView({
+      firstName: profileData.firstName,
+      lastName: profileData.lastName,
+      email: profileData.email || currentUser.email,
+      phone: profileData.phone,
+      role: profileData.role || 'Member'
+    }));
+
+    const profileForm = document.getElementById('profile-update-form');
+    const profileStatus = document.getElementById('profile-status');
+
+    const setProfileStatus = (message, isError = false) => {
+      if (!profileStatus) {
+        return;
+      }
+
+      profileStatus.textContent = message || '';
+      profileStatus.hidden = !message;
+      profileStatus.classList.toggle('form-error', isError);
+      profileStatus.classList.toggle('form-success', !isError && Boolean(message));
+    };
+
+    document.getElementById('back-to-profile-btn')?.addEventListener('click', () => {
+      window.location.hash = 'profile';
+    });
+
+    profileForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const formData = new FormData(profileForm);
+      const updatedProfile = {
+        firstName: (formData.get('firstName') || '').toString().trim(),
+        lastName: (formData.get('lastName') || '').toString().trim(),
+        email: (formData.get('email') || '').toString().trim(),
+        phone: (formData.get('phone') || '').toString().trim(),
+        role: (formData.get('role') || 'Member').toString().trim()
+      };
+
+      if (!updatedProfile.email) {
+        setProfileStatus('Please enter an email address before saving.', true);
+        return;
+      }
+
+      setProfileStatus('Saving your profile...', false);
+
+      try {
+        const refreshedProfile = await authService.updateUserProfile(updatedProfile);
+        renderUpdateView({
+          ...profileData,
+          ...updatedProfile,
+          ...(refreshedProfile || {})
+        });
+        const updatedStatus = document.getElementById('profile-status');
+        if (updatedStatus) {
+          updatedStatus.textContent = 'Profile updated successfully.';
+          updatedStatus.hidden = false;
+          updatedStatus.classList.remove('form-error');
+          updatedStatus.classList.add('form-success');
+        }
+      } catch (error) {
+        console.error('Unable to update profile:', error);
+        setProfileStatus(error?.message || 'Unable to update your profile right now.', true);
+      }
+    });
+  };
+
+  renderUpdateView({ email: currentUser.email });
+
+  try {
+    const profile = await authService.getCurrentUserProfile();
+
+    renderUpdateView({
+      firstName: profile?.firstName,
+      lastName: profile?.lastName,
+      email: profile?.email || currentUser.email,
+      phone: profile?.phone,
+      role: profile?.role,
+      createdAt: profile?.createdAt
+    });
+  } catch (error) {
+    console.error('Unable to load profile data:', error);
+  }
 }
 
 function route() {
@@ -1076,6 +1184,8 @@ function route() {
     showListToolPage();
   } else if (hash === 'profile') {
     showProfilePage();
+  } else if (hash === 'profile-update') {
+    showProfileUpdatePage();
   } else {
     showHomePage();
   }

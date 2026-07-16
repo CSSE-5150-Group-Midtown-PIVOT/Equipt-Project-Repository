@@ -4,7 +4,9 @@ import {
   PhoneAuthProvider,
   RecaptchaVerifier,
   signInWithEmailAndPassword,
-  signOut
+  signOut,
+  updateEmail,
+  updateProfile
 } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js';
 import { firebaseAuth } from './firebase-config.js';
 import { DatabaseService } from './databaseService.js';
@@ -44,6 +46,37 @@ export class AuthService {
 
   async logout() {
     return signOut(firebaseAuth);
+  }
+
+  async updateUserProfile(profileData = {}) {
+    const user = this.getCurrentUser();
+
+    if (!user) {
+      throw new Error('You must be signed in to update your profile.');
+    }
+
+    const normalizedEmail = (profileData.email || '').trim();
+    const normalizedFirstName = (profileData.firstName || '').trim();
+    const normalizedLastName = (profileData.lastName || '').trim();
+    const displayName = [normalizedFirstName, normalizedLastName].filter(Boolean).join(' ').trim();
+
+    if (normalizedEmail && normalizedEmail !== user.email) {
+      await updateEmail(user, normalizedEmail);
+    }
+
+    if (displayName || user.displayName !== displayName) {
+      await updateProfile(user, { displayName });
+    }
+
+    await this.databaseService.updateRecord('users', user.uid, {
+      firstName: normalizedFirstName,
+      lastName: normalizedLastName,
+      email: normalizedEmail || user.email,
+      phone: (profileData.phone || '').trim() || null,
+      role: (profileData.role || 'Member').trim() || 'Member'
+    });
+
+    return this.getCurrentUserProfile();
   }
 
   async sendPhoneVerification(phoneNumber, recaptchaContainerId = 'phone-recaptcha-container') {
