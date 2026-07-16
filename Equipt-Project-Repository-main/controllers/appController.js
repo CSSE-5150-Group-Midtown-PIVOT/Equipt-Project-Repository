@@ -647,6 +647,20 @@ async function loadMyListings(currentUser) {
             .map((item) => item.trim())
             .filter(Boolean);
 
+          const hasActiveReservation = Boolean(
+            listing.reservationStatus === 'Booked' ||
+            listing.reservationStatus === 'Reserved' ||
+            listing.isReserved ||
+            listing.hasActiveReservation ||
+            listing.bookingId ||
+            (typeof listing.availability === 'string' && listing.availability.toLowerCase().includes('reserved'))
+          );
+
+          if (hasActiveReservation && nextDailyRate !== Number(listing.dailyRate ?? listing.rentalPrice ?? 0)) {
+            window.alert('This listing already has a reservation booked, so the daily rate cannot be changed until the reservation is cleared.');
+            return;
+          }
+
           await databaseService.updateRecord('listings', listing.id, {
             toolName: formData.get('toolName') || listing.toolName || '',
             itemDescription: formData.get('itemDescription') || listing.itemDescription || '',
