@@ -98,6 +98,7 @@ export function renderRegistrationView() {
               <option value="">Select a role</option>
               <option value="Lender">Lender</option>
               <option value="Renter">Renter</option>
+              <option value="Both">Both (Lender &amp; Renter)</option>
             </select>
           </label>
           <div class="registration-actions">

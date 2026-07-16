@@ -2,7 +2,13 @@ export function renderProfileView(profile = {}) {
   const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || 'Your name';
   const email = profile.email || 'No email available';
   const phone = profile.phone || 'Not provided';
-  const role = profile.role || 'Member';
+  const role = profile.role === 'Both'
+    ? 'Both (Lender & Renter)'
+    : profile.role === 'Lender'
+      ? 'Lender'
+      : profile.role === 'Renter'
+        ? 'Renter'
+        : profile.role || 'Renter';
   const joined = profile.createdAt ? new Date(profile.createdAt).toLocaleDateString() : 'Recently joined';
 
   return `
@@ -35,8 +41,9 @@ export function renderProfileView(profile = {}) {
 
 export function renderProfileUpdateView(profile = {}) {
   const roleOptions = [
-    { value: 'Member', label: 'Renter' },
-    { value: 'Owner', label: 'Lender' },
+    { value: 'Renter', label: 'Renter' },
+    { value: 'Lender', label: 'Lender' },
+    { value: 'Both', label: 'Both (Lender & Renter)' },
     { value: 'Admin', label: 'Admin' }
   ]
     .map(({ value, label }) => `<option value="${value}" ${profile.role === value ? 'selected' : ''}>${label}</option>`)
