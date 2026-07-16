@@ -79,8 +79,20 @@ function getStoredAuthMessage() {
   return message || '';
 }
 
-function showHomePage() {
-  renderView(app, renderHomeView(Boolean(authService.getCurrentUser())));
+async function showHomePage() {
+  const currentUser = authService.getCurrentUser();
+  let userRole = '';
+
+  if (currentUser) {
+    try {
+      const profile = await authService.getCurrentUserProfile();
+      userRole = profile?.role || '';
+    } catch (error) {
+      console.error('Unable to load profile role for home page:', error);
+    }
+  }
+
+  renderView(app, renderHomeView(Boolean(currentUser), userRole));
   document.getElementById('go-login')?.addEventListener('click', showLoginPage);
 }
 
