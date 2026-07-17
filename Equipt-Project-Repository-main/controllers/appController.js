@@ -787,24 +787,30 @@ function isPublishedListing(listing = {}) {
   const publicationStatus = String(listing.publicationStatus || listing.status || '').trim().toLowerCase();
   const visibility = String(listing.visibility || listing.publicVisibility || '').trim().toLowerCase();
   const ownerRole = String(listing.ownerRole || listing.role || '').trim().toLowerCase();
+  const hasContent = Boolean(
+    listing.toolName ||
+    listing.itemName ||
+    listing.itemDescription ||
+    listing.photos?.length ||
+    listing.title
+  );
+  const hasExplicitPublicFlag = visibility === 'public' || visibility === 'published' || visibility === 'live';
+  const hasExplicitPublishedFlag = publicationStatus === 'published' || publicationStatus === 'live' || publicationStatus === 'approved' || publicationStatus === 'active';
+  const isDraftStatus = publicationStatus === 'draft' || publicationStatus === 'private';
 
-  if (visibility === 'public' || visibility === 'published' || visibility === 'live') {
-    return true;
+  if (visibility === 'private' || visibility === 'hidden') {
+    return false;
   }
 
   if (ownerRole === 'renter') {
     return false;
   }
 
-  if (ownerRole === 'lender' || ownerRole === 'both') {
-    return publicationStatus === 'published' || publicationStatus === 'live' || publicationStatus === 'approved' || publicationStatus === 'active' || listing.isPublished === true || listing.publiclyVisible === true;
+  if (ownerRole === 'lender' || ownerRole === 'both' || !ownerRole) {
+    return hasExplicitPublicFlag || hasExplicitPublishedFlag || (hasContent && !isDraftStatus && !publicationStatus);
   }
 
-  if (publicationStatus === 'published' || publicationStatus === 'live' || publicationStatus === 'approved' || publicationStatus === 'active') {
-    return true;
-  }
-
-  if (listing.isPublished === true || listing.publiclyVisible === true) {
+  if (hasExplicitPublicFlag || hasExplicitPublishedFlag || listing.isPublished === true || listing.publiclyVisible === true) {
     return true;
   }
 
