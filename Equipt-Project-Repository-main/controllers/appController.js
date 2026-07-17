@@ -825,8 +825,20 @@ function matchesCatalogFilters(listing = {}, filters = {}) {
     return false;
   }
 
-  if (selectedSubcategories.length > 0 && !(Array.isArray(listing.subcategories) ? listing.subcategories.map((value) => value.toLowerCase()) : []).some((value) => selectedSubcategories.includes(value))) {
-    return false;
+  // Normalize listing subcategories whether stored as array or comma-separated string
+  const listingSubList = Array.isArray(listing.subcategories)
+    ? listing.subcategories.map((value) => String(value || '').toLowerCase())
+    : (typeof listing.subcategories === 'string'
+      ? listing.subcategories.split(',').map((s) => s.trim().toLowerCase())
+      : []);
+
+  if (selectedSubcategories.length > 0) {
+    const matches = selectedSubcategories.some((sel) => listingSubList.some((ls) => ls.includes(sel) || sel.includes(ls)));
+    if (!matches) {
+      // debug: show which listing failed subcategory match (helps trace mismatches)
+      // debug logging removed
+      return false;
+    }
   }
 
   if (selectedConditions.length > 0 && !selectedConditions.includes(listing.condition || '')) {
@@ -1197,6 +1209,12 @@ function showToolCatalogPage() {
     if (shell) {
       shell.style.setProperty('--range-start', `${startPercent}%`);
       shell.style.setProperty('--range-end', `${endPercent}%`);
+      // trigger a subtle pulse animation when the range updates
+      shell.classList.remove('pulse');
+      // allow reflow
+      // eslint-disable-next-line no-unused-expressions
+      shell.offsetWidth;
+      shell.classList.add('pulse');
     }
   };
 

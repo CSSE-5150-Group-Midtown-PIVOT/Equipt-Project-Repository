@@ -394,71 +394,111 @@ main {
 
 .range-slider-shell {
   position: relative;
-  height: 2.25rem;
-  margin-top: 0.55rem;
+  height: 3rem;
+  margin-top: 0.6rem;
 }
 
+/* Two-thumb slider: two overlapping native inputs styled to look like a single control */
 .rate-slider {
-  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  appearance: none;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  margin: 0;
+  height: 100%;
   background: transparent;
-}
-
-.rate-slider::-webkit-slider-thumb {
   pointer-events: auto;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #2f6fed;
-  border: 2px solid white;
-  box-shadow: 0 0 0 1px #2f6fed;
-  cursor: pointer;
 }
 
-.rate-slider::-moz-range-thumb {
-  pointer-events: auto;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #2f6fed;
-  border: 2px solid white;
-  box-shadow: 0 0 0 1px #2f6fed;
-  cursor: pointer;
-}
-
-.rate-slider::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #cbd5e1 0%, #cbd5e1 100%);
-}
-
-.rate-slider::-moz-range-track {
-  height: 6px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #cbd5e1 0%, #cbd5e1 100%);
-}
-
-.range-slider-shell {
-  position: relative;
-  height: 2.25rem;
-  margin-top: 0.55rem;
-  background: linear-gradient(90deg, #cbd5e1 0%, #cbd5e1 100%);
-  border-radius: 999px;
-  overflow: hidden;
+.rate-slider:focus {
+  outline: none;
 }
 
 .range-slider-shell::before {
   content: "";
   position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, #cbd5e1 0%, #cbd5e1 var(--range-start, 0%), #2f6fed var(--range-start, 0%), #2f6fed var(--range-end, 100%), #cbd5e1 var(--range-end, 100%), #cbd5e1 100%);
-  border-radius: inherit;
-  pointer-events: none;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e6eef7 0%, #e6eef7 100%);
 }
+
+/* filled range between thumbs */
+.range-slider-shell::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
+  left: var(--range-start, 0%);
+  right: calc(100% - var(--range-end, 100%));
+  transition: left 260ms cubic-bezier(.2,.9,.2,1), right 260ms cubic-bezier(.2,.9,.2,1), transform 360ms ease, opacity 260ms ease;
+  transform-origin: center;
+  transition: left 220ms cubic-bezier(.2,.8,.2,1), right 220ms cubic-bezier(.2,.8,.2,1);
+
+@keyframes rangePulse {
+  0% { transform: translateY(-50%) scaleY(1); opacity: 1; }
+  50% { transform: translateY(-50%) scaleY(1.12); opacity: 0.95; }
+  100% { transform: translateY(-50%) scaleY(1); opacity: 1; }
+}
+
+.range-slider-shell.pulse::after {
+  animation: rangePulse 420ms cubic-bezier(.2,.9,.2,1);
+}
+}
+
+.rate-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2px solid rgba(255,255,255,0.9);
+  box-shadow: 0 6px 16px rgba(37,99,235,0.18);
+  cursor: grab;
+  position: relative;
+  z-index: 2;
+}
+
+.rate-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2px solid rgba(255,255,255,0.9);
+  box-shadow: 0 6px 16px rgba(37,99,235,0.18);
+  cursor: grab;
+  position: relative;
+  z-index: 2;
+}
+
+.rate-slider:active::-webkit-slider-thumb { cursor: grabbing; }
+.rate-slider:active::-moz-range-thumb { cursor: grabbing; }
+
+.rate-slider:focus::-webkit-slider-thumb { z-index: 3; transform: scale(1.03); }
+.rate-slider:focus::-moz-range-thumb { z-index: 3; transform: scale(1.03); }
+
+/* Hide native tracks so our pseudo elements show instead */
+.rate-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  background: transparent;
+}
+
+.rate-slider::-moz-range-track {
+  height: 8px;
+  background: transparent;
+}
+
+/* legacy shell styles removed to avoid conflicts; track handled by ::before/::after above */
 
 .rate-caption {
   margin: 0;
@@ -1054,6 +1094,22 @@ button.secondary {
 .listing-edit-form .form-field {
   display: grid;
   gap: 0.35rem;
+}
+
+/* Ensure edit form inputs fit inside the card and do not overflow */
+.listing-edit-form {
+  width: 100%;
+  box-sizing: border-box;
+}
+.listing-edit-form .form-field input,
+.listing-edit-form .form-field select,
+.listing-edit-form .form-field textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.listing-card {
+  overflow: hidden;
 }
 
 .listing-edit-form .form-field input,
