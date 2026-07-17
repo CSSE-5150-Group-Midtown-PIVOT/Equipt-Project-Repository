@@ -459,10 +459,13 @@ function showListToolPage() {
       const selectedSubcategories = Array.from(document.querySelectorAll('#list-category-checklist input[type="checkbox"]:checked')).map((checkbox) => checkbox.value);
       const nextDailyRate = normalizeDailyRate(document.getElementById('rental-price')?.value || 0);
       const availabilityValue = document.getElementById('listing-availability')?.value || 'Available now';
+      const profile = await authService.getCurrentUserProfile();
+      const ownerRole = String(profile?.role || 'Lender').trim();
 
       const createdListing = await databaseService.createRecord('listings', {
         ownerId: currentUser.uid,
         ownerEmail: currentUser.email,
+        ownerRole,
         toolName: document.getElementById('item-name')?.value?.trim() || '',
         itemDescription: document.getElementById('item-description')?.value?.trim() || '',
         itemCategory: categorySelect?.value || '',
@@ -477,6 +480,8 @@ function showListToolPage() {
         availability: availabilityValue,
         publicationStatus: 'Published',
         isPublished: true,
+        visibility: 'public',
+        publiclyVisible: true,
         photos,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -695,18 +700,24 @@ async function loadMyListings(currentUser) {
             return;
           }
 
+          const profile = await authService.getCurrentUserProfile();
+          const ownerRole = String(profile?.role || listing.ownerRole || 'Lender').trim();
+
           const updatePayload = {
             toolName: formData.get('toolName') || listing.toolName || '',
             itemDescription: formData.get('itemDescription') || listing.itemDescription || '',
             itemCategory: formData.get('itemCategory') || listing.itemCategory || '',
             subcategories: nextSubcategories,
             availability: nextAvailability,
+            ownerRole,
             dailyRate: nextDailyRate,
             rentalPrice: nextDailyRate,
             standardDailyRateUsd: nextDailyRate,
             currency: 'USD',
             publicationStatus: nextPublicationStatus,
             isPublished: nextPublicationStatus === 'Published',
+            visibility: nextPublicationStatus === 'Published' ? 'public' : 'private',
+            publiclyVisible: nextPublicationStatus === 'Published',
             photos: nextPhotos,
             updatedAt: new Date().toISOString()
           };
@@ -773,7 +784,31 @@ async function loadMyListings(currentUser) {
 }
 
 function isPublishedListing(listing = {}) {
-  return listing.publicationStatus === 'Published' || Boolean(listing.isPublished);
+  const publicationStatus = String(listing.publicationStatus || listing.status || '').trim().toLowerCase();
+  const visibility = String(listing.visibility || listing.publicVisibility || '').trim().toLowerCase();
+  const ownerRole = String(listing.ownerRole || listing.role || '').trim().toLowerCase();
+
+  if (visibility === 'public' || visibility === 'published' || visibility === 'live') {
+    return true;
+  }
+
+  if (ownerRole === 'renter') {
+    return false;
+  }
+
+  if (ownerRole === 'lender' || ownerRole === 'both') {
+    return publicationStatus === 'published' || publicationStatus === 'live' || publicationStatus === 'approved' || publicationStatus === 'active' || listing.isPublished === true || listing.publiclyVisible === true;
+  }
+
+  if (publicationStatus === 'published' || publicationStatus === 'live' || publicationStatus === 'approved' || publicationStatus === 'active') {
+    return true;
+  }
+
+  if (listing.isPublished === true || listing.publiclyVisible === true) {
+    return true;
+  }
+
+  return false;
 }
 
 function getCatalogFilterState() {
