@@ -6,6 +6,7 @@ import { renderProfileUpdateView, renderProfileView } from '../views/profileView
 import { renderListToolView } from '../views/listToolView.js';
 import { AuthService } from '../services/authService.js';
 import { DatabaseService } from '../services/databaseService.js';
+import { createReservationSnapshot, formatUsdRate, getEffectiveDailyRate, normalizeDailyRate, shouldBlockRateChange } from '../services/pricingService.js';
 
 // Main controller for routing between starter pages.
 // Add page-specific logic here as the app grows.
@@ -456,8 +457,10 @@ function showListToolPage() {
       setStatus('Publishing your listing to Firestore…', false);
       const photos = await readImageFilesAsDataUrls(selectedImages.map((entry) => entry.file));
       const selectedSubcategories = Array.from(document.querySelectorAll('#list-category-checklist input[type="checkbox"]:checked')).map((checkbox) => checkbox.value);
+      const nextDailyRate = normalizeDailyRate(document.getElementById('rental-price')?.value || 0);
+      const availabilityValue = document.getElementById('listing-availability')?.value || 'Available now';
 
-      await databaseService.createRecord('listings', {
+      const createdListing = await databaseService.createRecord('listings', {
         ownerId: currentUser.uid,
         ownerEmail: currentUser.email,
         toolName: document.getElementById('item-name')?.value?.trim() || '',
@@ -466,16 +469,43 @@ function showListToolPage() {
         subcategories: selectedSubcategories,
         itemLocation: document.getElementById('item-location')?.value?.trim() || '',
         condition: document.getElementById('condition')?.value || '',
-        rentalPrice: Number(document.getElementById('rental-price')?.value || 0),
+        rentalPrice: nextDailyRate,
         rentalPeriod: document.getElementById('rental-period')?.value || 'day',
-        dailyRate: Number(document.getElementById('rental-price')?.value || 0),
-        availability: document.getElementById('listing-availability')?.value || 'Available now',
+        dailyRate: nextDailyRate,
+        standardDailyRateUsd: nextDailyRate,
+        currency: 'USD',
+        availability: availabilityValue,
         publicationStatus: 'Published',
         isPublished: true,
         photos,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
+
+      if (availabilityValue.toLowerCase().includes('reserved') || availabilityValue.toLowerCase().includes('booked')) {
+        const reservationSnapshot = createReservationSnapshot({
+          id: createdListing.id,
+          ownerId: currentUser.uid,
+          toolName: document.getElementById('item-name')?.value?.trim() || '',
+          dailyRate: nextDailyRate,
+          rentalPrice: nextDailyRate
+        }, {
+          listingId: createdListing.id,
+          ownerId: currentUser.uid,
+          toolName: document.getElementById('item-name')?.value?.trim() || '',
+          bookedRateUsd: nextDailyRate,
+          status: 'Booked',
+          reservationStatus: 'Booked',
+          bookedAt: new Date().toISOString()
+        });
+
+        const reservationRecord = await databaseService.createRecord('reservations', reservationSnapshot);
+        await databaseService.updateRecord('listings', createdListing.id, {
+          reservationId: reservationRecord.id,
+          bookingId: reservationRecord.id,
+          reservationStatus: 'Booked'
+        });
+      }
 
       setStatus('Your listing is now live in Firestore.', false);
       form.reset();
@@ -534,7 +564,7 @@ async function loadMyListings(currentUser) {
     shell.innerHTML = ownerListings.map((listing) => {
       const photoUrl = Array.isArray(listing.photos) && listing.photos.length > 0 ? listing.photos[0] : '';
       const status = listing.publicationStatus || (listing.isPublished ? 'Published' : 'Draft');
-      const rate = listing.dailyRate ?? listing.rentalPrice ?? 0;
+      const rate = getEffectiveDailyRate(listing);
       const availability = listing.availability || 'Available now';
       const category = listing.category || listing.itemCategory || 'Uncategorized';
 
@@ -547,7 +577,7 @@ async function loadMyListings(currentUser) {
             <div class="listing-card__details">
               <h4>${escapeHtml(listing.toolName || 'Unnamed listing')}</h4>
               <p><strong>Category:</strong> ${escapeHtml(category)}</p>
-              <p><strong>Daily rate:</strong> $${escapeHtml(Number(rate).toFixed(2))}</p>
+              <p><strong>Daily rate:</strong> ${escapeHtml(formatUsdRate(rate))}</p>
               <p><strong>Availability:</strong> ${escapeHtml(availability)}</p>
               <p><strong>Status:</strong> ${escapeHtml(status)}</p>
             </div>
@@ -614,8 +644,8 @@ async function loadMyListings(currentUser) {
             </div>
             <div class="form-grid">
               <div class="form-field">
-                <label for="edit-rental-price">Daily rate</label>
-                <input id="edit-rental-price" name="dailyRate" type="number" min="1" step="0.01" value="${escapeHtml(Number(listing.dailyRate ?? listing.rentalPrice ?? 0).toFixed(2))}" required />
+                <label for="edit-rental-price">Daily rate (USD)</label>
+                <input id="edit-rental-price" name="dailyRate" type="number" min="1" step="0.01" value="${escapeHtml(Number(getEffectiveDailyRate(listing)).toFixed(2))}" required />
               </div>
               <div class="form-field">
                 <label for="edit-publication-status">Publication status</label>
@@ -653,39 +683,62 @@ async function loadMyListings(currentUser) {
           const selectedPhotos = Array.from(editForm.querySelector('#edit-photos')?.files || []);
           const nextPhotos = selectedPhotos.length > 0 ? await readImageFilesAsDataUrls(selectedPhotos) : (Array.isArray(listing.photos) ? listing.photos : []);
           const nextPublicationStatus = formData.get('publicationStatus') || 'Published';
-          const nextDailyRate = Number(formData.get('dailyRate') || 0);
+          const nextDailyRate = normalizeDailyRate(formData.get('dailyRate') || 0);
+          const nextAvailability = String(formData.get('availability') || listing.availability || 'Available now');
           const nextSubcategories = String(formData.get('subcategories') || '')
             .split(',')
             .map((item) => item.trim())
             .filter(Boolean);
 
-          const hasActiveReservation = Boolean(
-            listing.reservationStatus === 'Booked' ||
-            listing.reservationStatus === 'Reserved' ||
-            listing.isReserved ||
-            listing.hasActiveReservation ||
-            listing.bookingId ||
-            (typeof listing.availability === 'string' && listing.availability.toLowerCase().includes('reserved'))
-          );
-
-          if (hasActiveReservation && nextDailyRate !== Number(listing.dailyRate ?? listing.rentalPrice ?? 0)) {
+          if (shouldBlockRateChange(listing, nextDailyRate)) {
             window.alert('This listing already has a reservation booked, so the daily rate cannot be changed until the reservation is cleared.');
             return;
           }
 
-          await databaseService.updateRecord('listings', listing.id, {
+          const updatePayload = {
             toolName: formData.get('toolName') || listing.toolName || '',
             itemDescription: formData.get('itemDescription') || listing.itemDescription || '',
             itemCategory: formData.get('itemCategory') || listing.itemCategory || '',
             subcategories: nextSubcategories,
-            availability: formData.get('availability') || listing.availability || 'Available now',
+            availability: nextAvailability,
             dailyRate: nextDailyRate,
             rentalPrice: nextDailyRate,
+            standardDailyRateUsd: nextDailyRate,
+            currency: 'USD',
             publicationStatus: nextPublicationStatus,
             isPublished: nextPublicationStatus === 'Published',
             photos: nextPhotos,
             updatedAt: new Date().toISOString()
-          });
+          };
+
+          await databaseService.updateRecord('listings', listing.id, updatePayload);
+
+          const isReservationActive = nextAvailability.toLowerCase().includes('reserved') || nextAvailability.toLowerCase().includes('booked');
+          if (isReservationActive) {
+            const reservationPayload = createReservationSnapshot(listing, {
+              listingId: listing.id,
+              ownerId: currentUser.uid,
+              toolName: formData.get('toolName') || listing.toolName || '',
+              bookedRateUsd: nextDailyRate,
+              status: 'Booked',
+              reservationStatus: 'Booked',
+              bookedAt: new Date().toISOString()
+            });
+
+            if (listing.reservationId || listing.bookingId) {
+              await databaseService.updateRecord('reservations', listing.reservationId || listing.bookingId, {
+                ...reservationPayload,
+                updatedAt: new Date().toISOString()
+              });
+            } else {
+              const reservationRecord = await databaseService.createRecord('reservations', reservationPayload);
+              await databaseService.updateRecord('listings', listing.id, {
+                reservationId: reservationRecord.id,
+                bookingId: reservationRecord.id,
+                reservationStatus: 'Booked'
+              });
+            }
+          }
 
           await loadMyListings(currentUser);
         });
@@ -807,6 +860,58 @@ function matchesCatalogFilters(listing = {}, filters = {}) {
   return true;
 }
 
+function buildCalendarDays(listing = {}, reservationRecords = [], monthDate = new Date()) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
+  const reservedSet = new Set();
+
+  const addDateKey = (d) => {
+    if (!d) return;
+    if (typeof d === 'string') {
+      // normalize to YYYY-MM-DD
+      const key = d.includes('T') ? d.slice(0, 10) : d;
+      reservedSet.add(key);
+      return;
+    }
+    if (d instanceof Date) {
+      reservedSet.add(d.toISOString().slice(0, 10));
+      return;
+    }
+    if (Array.isArray(d)) {
+      d.forEach(addDateKey);
+    }
+  };
+
+  // gather reservation dates from records
+  reservationRecords.forEach((rec) => {
+    addDateKey(rec.startDate || rec.bookedDate || rec.date || rec.bookedAt || rec.start || rec.reservedDates || rec.bookedDates || rec.dates || rec.endDate || rec.end);
+  });
+
+  // listing-level reservedDates
+  addDateKey(listing.reservedDates || listing.reservedDate || listing.bookedDates);
+
+  const monthDays = [];
+  const leadingBlanks = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
+
+  for (let i = 0; i < leadingBlanks; i += 1) {
+    monthDays.push({ day: '', reserved: false });
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const isReserved = reservedSet.has(dateKey);
+    monthDays.push({ day, reserved: isReserved });
+  }
+
+  return monthDays;
+}
+
+function getCalendarCaption(monthDate = new Date()) {
+  return monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
 async function loadCatalogListings() {
   const results = document.querySelector('.catalog-results');
   const feedback = document.getElementById('catalog-feedback');
@@ -821,6 +926,7 @@ async function loadCatalogListings() {
 
   try {
     const allListings = await databaseService.readRecords('listings');
+    const allReservations = await databaseService.readRecords('reservations');
     const publishedListings = (allListings || []).filter(isPublishedListing);
     const filters = getCatalogFilterState();
     const visibleListings = publishedListings.filter((listing) => matchesCatalogFilters(listing, filters));
@@ -831,24 +937,47 @@ async function loadCatalogListings() {
       return;
     }
 
+    // Build a lookup of reservations by listing id (may be multiple reservations per listing)
+    const reservationLookup = new Map();
+    (allReservations || []).forEach((reservation) => {
+      const lid = reservation.listingId || reservation.listing?.id || '';
+      if (!lid) return;
+      const arr = reservationLookup.get(lid) || [];
+      arr.push(reservation);
+      reservationLookup.set(lid, arr);
+    });
+
+    // Cache current catalog data so calendar nav can re-render per-card without reloading from server
+    window.__catalogState = {
+      visibleListings,
+      allListings: allListings || [],
+      allReservations: allReservations || []
+    };
+
     results.innerHTML = visibleListings.map((listing) => {
       const photoUrl = Array.isArray(listing.photos) && listing.photos.length > 0 ? listing.photos[0] : '';
       const toolName = listing.toolName || 'Untitled listing';
       const description = listing.itemDescription || 'No description provided yet.';
       const categoryLabel = listing.itemCategory || listing.category || 'Uncategorized';
-      const dailyRate = Number(listing.dailyRate ?? listing.rentalPrice ?? 0).toFixed(2);
+      const dailyRate = Number(getEffectiveDailyRate(listing)).toFixed(2);
       const availability = listing.availability || 'Available now';
       const status = listing.publicationStatus || (listing.isPublished ? 'Published' : 'Draft');
+      const reservationsForListing = reservationLookup.get(listing.id) || [];
+      const monthDate = new Date();
+      const calendarDays = buildCalendarDays(listing, reservationsForListing, monthDate);
+      const reservedDays = calendarDays.filter((d) => d.day && d.reserved).length;
+      const availableDays = calendarDays.filter((d) => d.day && !d.reserved).length;
+      const calendarCaption = getCalendarCaption(monthDate);
 
       return `
-        <article class="catalog-result-card">
+        <article class="catalog-result-card" data-listing-id="${escapeHtml(listing.id)}" tabindex="0" role="button" aria-expanded="false">
           <div class="catalog-result-card__media">
             ${photoUrl ? `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(toolName)}" />` : '<div class="catalog-result-card__placeholder">No photo</div>'}
           </div>
           <div class="catalog-result-card__content">
             <div class="catalog-result-card__header">
               <h4>${escapeHtml(toolName)}</h4>
-              <span class="catalog-result-card__price">$${escapeHtml(dailyRate)}/day</span>
+              <span class="catalog-result-card__price">${escapeHtml(formatUsdRate(dailyRate))}/day</span>
             </div>
             <p>${escapeHtml(description)}</p>
             <div class="catalog-result-card__meta">
@@ -856,10 +985,141 @@ async function loadCatalogListings() {
               <span>${escapeHtml(availability)}</span>
               <span>${escapeHtml(status)}</span>
             </div>
+            
+            <div class="catalog-calendar" aria-label="Availability calendar for ${escapeHtml(toolName)}" data-month-offset="0" hidden>
+              <div class="catalog-calendar__header">
+                <button type="button" class="catalog-calendar__nav catalog-calendar__prev" data-listing-id="${escapeHtml(listing.id)}" aria-label="Previous month">‹</button>
+                <strong class="catalog-calendar__caption">${escapeHtml(calendarCaption)}</strong>
+                <button type="button" class="catalog-calendar__nav catalog-calendar__next" data-listing-id="${escapeHtml(listing.id)}" aria-label="Next month">›</button>
+                <span class="catalog-calendar__counts">${reservedDays} reserved • ${availableDays} available</span>
+              </div>
+              <div class="catalog-calendar__weekdays">
+                <span>Mo</span>
+                <span>Tu</span>
+                <span>We</span>
+                <span>Th</span>
+                <span>Fr</span>
+                <span>Sa</span>
+                <span>Su</span>
+              </div>
+              <div class="catalog-calendar__grid">
+                ${calendarDays.map((day) => `
+                  <div class="catalog-calendar__day ${day.day ? (day.reserved ? 'is-reserved' : 'is-available') : 'is-empty'}">${day.day || ''}</div>
+                `).join('')}
+              </div>
+              <div class="catalog-calendar__legend">
+                <span><i class="catalog-calendar__dot catalog-calendar__dot--available"></i> Available</span>
+                <span><i class="catalog-calendar__dot catalog-calendar__dot--reserved"></i> Reserved</span>
+              </div>
+            </div>
           </div>
         </article>
       `;
     }).join('');
+
+    // Make each listing card expandable: click or Enter/Space toggles details (calendar)
+    results.querySelectorAll('.catalog-result-card').forEach((card) => {
+      const listingId = card.dataset.listingId;
+      card.addEventListener('click', (e) => {
+        // ignore clicks on prev/next nav buttons inside the calendar
+        if (e.target.closest('.catalog-calendar__nav')) return;
+        const isExpanded = card.getAttribute('aria-expanded') === 'true';
+        card.setAttribute('aria-expanded', String(!isExpanded));
+        const calendar = card.querySelector('.catalog-calendar');
+        if (calendar) {
+          const willShow = !isExpanded;
+          calendar.toggleAttribute('hidden', !willShow);
+          if (willShow) {
+            const offset = Number(calendar.dataset.monthOffset || '0');
+            renderCalendarForListing(listingId, offset);
+          }
+        }
+      });
+
+      card.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          card.click();
+        }
+      });
+    });
+
+    // Helper to render calendar for a listing and month offset
+    const renderCalendarForListing = (listingId, offset) => {
+      if (!window.__catalogState) return;
+      const listing = (window.__catalogState.visibleListings || []).find((l) => l.id === listingId) || (window.__catalogState.allListings || []).find((l) => l.id === listingId);
+      if (!listing) return;
+      const allRes = window.__catalogState.allReservations || [];
+      const reservationsForListing = allRes.filter((r) => (r.listingId || r.listing || r.listingRef || r.listing_id) === listingId);
+
+      const now = new Date();
+      const target = new Date(now.getFullYear(), now.getMonth() + Number(offset || 0), 1);
+      const monthDays = buildCalendarDays(listing, reservationsForListing, target);
+
+      const toggleButton = results.querySelector(`.catalog-calendar-toggle[data-listing-id="${listingId}"]`) || results.querySelector(`.catalog-calendar__prev[data-listing-id="${listingId}"]`);
+      const card = toggleButton ? toggleButton.closest('.catalog-result-card') : null;
+      const calendar = card ? card.querySelector('.catalog-calendar') : null;
+      if (!calendar) return;
+
+      calendar.dataset.monthOffset = String(offset);
+      const captionEl = calendar.querySelector('.catalog-calendar__caption');
+      const countsEl = calendar.querySelector('.catalog-calendar__counts');
+      const gridEl = calendar.querySelector('.catalog-calendar__grid');
+
+      if (captionEl) captionEl.textContent = getCalendarCaption(target);
+      if (countsEl) countsEl.textContent = `${monthDays.filter((d) => d.day && d.reserved).length} reserved • ${monthDays.filter((d) => d.day && !d.reserved).length} available`;
+      if (gridEl) {
+        gridEl.innerHTML = monthDays.map((day) => `
+                  <div class="catalog-calendar__day ${day.day ? (day.reserved ? 'is-reserved' : 'is-available') : 'is-empty'}">${day.day || ''}</div>
+                `).join('');
+      }
+      // update prev/next state: hide the prev button on the current month (offset <= 0)
+      const prevBtn = calendar.querySelector('.catalog-calendar__prev');
+      const nextBtn = calendar.querySelector('.catalog-calendar__next');
+      const numOffset = Number(offset || 0);
+      if (prevBtn) {
+        const hidePrev = numOffset <= 0;
+        prevBtn.classList.toggle('is-hidden', hidePrev);
+        if (hidePrev) {
+          prevBtn.removeAttribute('aria-disabled');
+          prevBtn.classList.remove('is-disabled');
+        } else {
+          prevBtn.disabled = false;
+          prevBtn.removeAttribute('aria-hidden');
+        }
+      }
+      if (nextBtn) {
+        // next button always enabled for future navigation; ensure it's visible
+        nextBtn.style.display = '';
+        nextBtn.disabled = false;
+        nextBtn.removeAttribute('aria-disabled');
+        nextBtn.classList.remove('is-disabled');
+      }
+    };
+
+    // Wire prev/next month buttons
+    results.querySelectorAll('.catalog-calendar__prev').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.listingId;
+        const card = btn.closest('.catalog-result-card');
+        const calendar = card ? card.querySelector('.catalog-calendar') : null;
+        const current = calendar ? Number(calendar.dataset.monthOffset || '0') : 0;
+        const next = Math.max(current - 1, 0);
+        // clamp to 0 to prevent past navigation
+        renderCalendarForListing(id, next);
+      });
+    });
+
+    results.querySelectorAll('.catalog-calendar__next').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.listingId;
+        const card = btn.closest('.catalog-result-card');
+        const calendar = card ? card.querySelector('.catalog-calendar') : null;
+        const current = calendar ? Number(calendar.dataset.monthOffset || '0') : 0;
+        const next = current + 1;
+        renderCalendarForListing(id, next);
+      });
+    });
 
     feedback.textContent = `Showing ${visibleListings.length} published listing${visibleListings.length === 1 ? '' : 's'}.`;
   } catch (error) {
@@ -1051,6 +1311,14 @@ function showToolCatalogPage() {
 
   updateCategoryVisibility();
   updatePriceRange();
+  // Set up realtime listeners for listings and reservations so calendars update automatically
+  if (window.__equiptUnsubscribers) {
+    window.__equiptUnsubscribers.forEach((u) => { try { u(); } catch (e) {} });
+  }
+  const unsubListings = databaseService.subscribeToCollection('listings', () => loadCatalogListings());
+  const unsubReservations = databaseService.subscribeToCollection('reservations', () => loadCatalogListings());
+  window.__equiptUnsubscribers = [unsubListings, unsubReservations];
+
   loadCatalogListings();
 }
 

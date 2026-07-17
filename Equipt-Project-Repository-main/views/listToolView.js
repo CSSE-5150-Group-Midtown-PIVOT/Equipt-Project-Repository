@@ -204,7 +204,7 @@ export function renderListToolView() {
 
           <div class="form-grid">
             <div class="form-field">
-              <label for="rental-price">Rental Price <span class="required-mark">*</span></label>
+              <label for="rental-price">Daily rate (USD) <span class="required-mark">*</span></label>
               <div class="price-input-row">
                 <span class="price-currency">$</span>
                 <input id="rental-price" name="rentalPrice" type="number" min="1" step="0.01" placeholder="25" required />

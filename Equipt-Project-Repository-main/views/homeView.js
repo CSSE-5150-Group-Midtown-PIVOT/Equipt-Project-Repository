@@ -11,7 +11,7 @@ export function renderHomeView(isLoggedIn = false, userRole = '') {
         <img src="assets/equipt-hero.png" alt="Equipt logo" class="minimal-hero__logo" onerror="this.style.display='none'" />
         <div class="home-actions minimal-hero__actions">
           ${isLoggedIn ? '' : '<a class="home-btn home-btn--primary" href="#login">Log In</a>'}
-          <a class="home-btn home-btn--secondary" href="#tool-catalog">Browse Tools</a>
+          <a class="home-btn home-btn--primary" href="#tool-catalog">Browse Tools</a>
           ${isLoggedIn && isRenter ? '' : '<a class="home-btn home-btn--accent" href="#list-tool">List Tools</a>'}
         </div>
       </div>

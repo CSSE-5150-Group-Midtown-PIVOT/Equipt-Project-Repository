@@ -570,6 +570,118 @@ main {
   font-size: 0.85rem;
 }
 
+/* Availability calendar styles for catalog cards */
+.catalog-result-card .catalog-filter-toggle {
+  margin-top: 0.6rem;
+  align-self: flex-start;
+}
+
+.catalog-calendar {
+  margin-top: 0.6rem;
+  padding: 0.7rem;
+  border-radius: 12px;
+  background: #f8fbff;
+  border: 1px solid #dbeafe;
+}
+
+.catalog-calendar__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+.catalog-calendar__weekdays,
+.catalog-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.catalog-calendar__weekdays {
+  margin-bottom: 0.3rem;
+  color: #64748b;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.catalog-calendar__day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.8rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.catalog-calendar__day.is-empty {
+  background: transparent;
+}
+
+.catalog-calendar__day.is-available {
+  background: #ecfdf3;
+  color: #166534;
+}
+
+.catalog-calendar__day.is-reserved {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.catalog-calendar__legend {
+  display: flex;
+  gap: 0.8rem;
+  margin-top: 0.55rem;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+/* Calendar nav buttons with smooth show/hide transition */
+.catalog-calendar__nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #0f172a;
+  font-size: 1.2rem;
+  border: 1px solid #dbeafe;
+  cursor: pointer;
+  transition: opacity 220ms ease, transform 220ms ease, width 220ms ease, margin 220ms ease, padding 220ms ease;
+}
+
+.catalog-calendar__nav.is-hidden {
+  opacity: 0;
+  transform: translateX(-6px);
+  width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  pointer-events: none;
+}
+
+.catalog-calendar__dot {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  margin-right: 0.3rem;
+}
+
+.catalog-calendar__dot--available {
+  background: #34d399;
+}
+
+.catalog-calendar__dot--reserved {
+  background: #f87171;
+}
+
 .toggle-row {
   display: flex;
   align-items: center;
@@ -808,7 +920,7 @@ button.secondary {
 
 .profile-section-header h3 {
   margin: 0;
-  color: #0f2a4a;
+  color: #ffffff;
 }
 
 .profile-section-header p {

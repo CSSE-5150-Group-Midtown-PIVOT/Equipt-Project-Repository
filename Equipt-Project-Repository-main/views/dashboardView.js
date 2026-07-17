@@ -23,7 +23,10 @@ export function renderDashboardView() {
             <option value="price-high">Price: High to Low</option>
             <option value="newest">Newest Listings</option>
           </select>
-          <button id="toggle-filters" class="secondary catalog-filter-toggle" type="button">⚲ Filter</button>
+          <button id="toggle-filters" class="secondary catalog-filter-toggle" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M3 5h18v2l-7 8v5l-4 2v-7L3 7V5z" fill="currentColor"/></svg>
+            <span>Filter</span>
+          </button>
         </div>
       </div>
 

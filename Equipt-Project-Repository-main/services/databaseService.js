@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
+import { addDoc, collection, deleteDoc, doc, getDocs, setDoc, updateDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 import { firebaseDb } from './firebase-config.js';
 
 export class DatabaseService {
@@ -24,6 +24,24 @@ export class DatabaseService {
   async readRecords(collectionName) {
     const querySnapshot = await getDocs(collection(firebaseDb, collectionName));
     return querySnapshot.docs.map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }));
+  }
+
+  subscribeToCollection(collectionName, onChange) {
+    const collRef = collection(firebaseDb, collectionName);
+    const unsubscribe = onSnapshot(collRef, (snapshot) => {
+      const records = snapshot.docs.map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }));
+      try {
+        if (typeof onChange === 'function') {
+          onChange(records);
+        }
+      } catch (err) {
+        console.error('Error in onChange callback for subscribeToCollection:', err);
+      }
+    }, (error) => {
+      console.error(`Realtime listener error for collection ${collectionName}:`, error);
+    });
+
+    return unsubscribe;
   }
 
   async updateRecord(collectionName, id, data) {
