@@ -548,6 +548,193 @@ async function readImageFilesAsDataUrls(files = []) {
   return Promise.all(readers);
 }
 
+async function loadLenderBookingRequests(currentUser) {
+  const shell = document.getElementById('booking-requests-shell');
+
+  if (!shell || !currentUser) {
+    return;
+  }
+
+  shell.innerHTML = '<p class="empty-state">Loading booking requests…</p>';
+
+  try {
+    const [allListings, allReservations] = await Promise.all([
+      databaseService.readRecords('listings'),
+      databaseService.readRecords('reservations')
+    ]);
+
+    const ownerListings = (allListings || []).filter((listing) => listing.ownerId === currentUser.uid);
+    const ownerListingIds = new Set(ownerListings.map((listing) => listing.id));
+    const ownerReservations = (allReservations || []).filter((reservation) => {
+      const listingId = reservation.listingId || reservation.listing?.id || reservation.listing_id || '';
+      return ownerListingIds.has(listingId);
+    });
+
+    const activeReservations = ownerReservations.filter((reservation) => isReservationActive(reservation));
+    const historyReservations = ownerReservations.filter((reservation) => !isReservationActive(reservation));
+
+    const sortReservations = (reservations = []) => reservations.sort((left, right) => {
+      const leftDate = getDateKey(left.startDate || left.start || left.bookedDate || left.date || left.reservedDates || left.bookedDates || left.dates || left.bookedAt || '');
+      const rightDate = getDateKey(right.startDate || right.start || right.bookedDate || right.date || right.reservedDates || right.bookedDates || right.dates || right.bookedAt || '');
+      return leftDate.localeCompare(rightDate);
+    });
+
+    const sortedActiveReservations = sortReservations(activeReservations);
+    const sortedHistoryReservations = sortReservations(historyReservations);
+
+    const renderReservationCard = (reservation) => {
+      const listing = ownerListings.find((entry) => entry.id === (reservation.listingId || reservation.listing?.id || reservation.listing_id)) || {};
+      const bookingState = getReservationStatus(reservation);
+      const bookingDateKey = getDateKey(reservation.startDate || reservation.start || reservation.bookedDate || reservation.date || reservation.reservedDates || reservation.bookedDates || reservation.dates || reservation.bookedAt || '');
+      const bookingDateLabel = bookingDateKey ? new Date(`${bookingDateKey}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date selected';
+      const startDate = bookingDateKey ? new Date(`${bookingDateKey}T12:00:00`) : null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const isFutureBooking = startDate ? startDate >= today : false;
+      const normalizedStatus = String(bookingState || 'Pending').trim().toLowerCase();
+      const canReject = ['pending', 'pending request', 'requested'].includes(normalizedStatus);
+      const canCancel = ['confirmed', 'booked', 'accepted'].includes(normalizedStatus) && isFutureBooking;
+
+      return `
+        <article class="booking-request-card ${!isReservationActive(reservation) ? 'booking-request-card--history' : ''}" data-reservation-id="${escapeHtml(reservation.id)}">
+          <div class="booking-request-card__body">
+            <div>
+              <h4>${escapeHtml(listing.toolName || 'Tool request')}</h4>
+              <p><strong>Tool:</strong> ${escapeHtml(listing.toolName || 'Unknown listing')}</p>
+              <p><strong>Date:</strong> ${escapeHtml(bookingDateLabel)}</p>
+              <p><strong>Status:</strong> ${escapeHtml(bookingState || 'Pending')}</p>
+              ${reservation.reason ? `<p><strong>Reason:</strong> ${escapeHtml(reservation.reason)}</p>` : ''}
+            </div>
+            <div class="booking-request-card__actions">
+              ${canReject ? `<button type="button" class="secondary" data-action="reject-booking" data-reservation-id="${escapeHtml(reservation.id)}">Reject</button>` : ''}
+              ${canCancel ? `<button type="button" class="primary" data-action="cancel-booking" data-reservation-id="${escapeHtml(reservation.id)}">Cancel</button>` : ''}
+            </div>
+          </div>
+        </article>
+      `;
+    };
+
+    const activeMarkup = sortedActiveReservations.length
+      ? sortedActiveReservations.map(renderReservationCard).join('')
+      : '<p class="empty-state">No active booking requests.</p>';
+
+    const historyMarkup = sortedHistoryReservations.length
+      ? `
+        <details class="booking-history">
+          <summary>Booking History (${sortedHistoryReservations.length})</summary>
+          <div class="booking-history__list">
+            ${sortedHistoryReservations.map(renderReservationCard).join('')}
+          </div>
+        </details>
+      `
+      : '<p class="empty-state">No booking history yet.</p>';
+
+    shell.innerHTML = `
+      <div class="booking-requests__section">
+        <h4 class="booking-requests__subheading">Active Requests</h4>
+        ${activeMarkup}
+      </div>
+      <div class="booking-requests__section">
+        <h4 class="booking-requests__subheading">Booking History</h4>
+        ${historyMarkup}
+      </div>
+    `;
+
+    shell.querySelectorAll('[data-action="reject-booking"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const reservationId = button.getAttribute('data-reservation-id');
+        const reservation = ownerReservations.find((entry) => entry.id === reservationId);
+        if (!reservation) {
+          return;
+        }
+
+        const confirmed = window.confirm('Are you sure you want to reject this booking request?');
+        if (!confirmed) {
+          return;
+        }
+
+        const reason = window.prompt('Optional reason for rejection:', '');
+        await updateBookingState(reservation, 'Rejected', reason || '');
+        await loadLenderBookingRequests(currentUser);
+        await loadMyListings(currentUser);
+        await loadCatalogListings();
+      });
+    });
+
+    shell.querySelectorAll('[data-action="cancel-booking"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const reservationId = button.getAttribute('data-reservation-id');
+        const reservation = ownerReservations.find((entry) => entry.id === reservationId);
+        if (!reservation) {
+          return;
+        }
+
+        const confirmed = window.confirm('Are you sure you want to cancel this booking?');
+        if (!confirmed) {
+          return;
+        }
+
+        const reason = window.prompt('Optional reason for cancellation:', '');
+        await updateBookingState(reservation, 'Cancelled', reason || '');
+        await loadLenderBookingRequests(currentUser);
+        await loadMyListings(currentUser);
+        await loadCatalogListings();
+      });
+    });
+  } catch (error) {
+    console.error('Unable to load lender booking requests:', error);
+    shell.innerHTML = '<p class="empty-state">We could not load booking requests right now.</p>';
+  }
+}
+
+async function updateBookingState(reservation = {}, nextStatus = 'Cancelled', reason = '') {
+  const listingId = reservation.listingId || reservation.listing?.id || reservation.listing_id || '';
+  if (!listingId) {
+    return;
+  }
+
+  const [allListings, allReservations] = await Promise.all([
+    databaseService.readRecords('listings'),
+    databaseService.readRecords('reservations')
+  ]);
+
+  const listing = (allListings || []).find((entry) => entry.id === listingId);
+  const reservationDateKey = getDateKey(reservation.startDate || reservation.start || reservation.bookedDate || reservation.date || reservation.reservedDates || reservation.bookedDates || reservation.dates || reservation.bookedAt || '');
+  const otherActiveReservations = (allReservations || []).filter((entry) => {
+    const entryListingId = entry.listingId || entry.listing?.id || entry.listing_id || '';
+    const entryDateKey = getDateKey(entry.startDate || entry.start || entry.bookedDate || entry.date || entry.reservedDates || entry.bookedDates || entry.dates || entry.bookedAt || '');
+    return entryListingId === listingId && entry.id !== reservation.id && isReservationActive(entry) && (!reservationDateKey || !entryDateKey || entryDateKey !== reservationDateKey);
+  });
+
+  const existingReservedDates = Array.isArray(listing?.reservedDates)
+    ? listing.reservedDates
+    : [listing?.reservedDates || listing?.reservedDate || listing?.bookedDates].filter(Boolean);
+  const nextReservedDates = Array.from(new Set([
+    ...existingReservedDates.filter((value) => getDateKey(value) !== reservationDateKey),
+    ...otherActiveReservations.flatMap((entry) => getDateKey(entry.startDate || entry.start || entry.bookedDate || entry.date || entry.reservedDates || entry.bookedDates || entry.dates || entry.bookedAt || ''))
+  ].filter(Boolean)));
+
+  const hasRemainingReservations = nextReservedDates.length > 0;
+
+  await databaseService.updateRecord('reservations', reservation.id, {
+    status: nextStatus,
+    reservationStatus: nextStatus,
+    reason: reason || reservation.reason || '',
+    updatedAt: new Date().toISOString()
+  });
+
+  if (listing) {
+    await databaseService.updateRecord('listings', listing.id, {
+      availability: hasRemainingReservations ? 'Booked' : 'Available now',
+      reservationStatus: hasRemainingReservations ? 'Booked' : 'Available now',
+      reservedDates: nextReservedDates,
+      bookingId: hasRemainingReservations ? (listing.bookingId || '') : '',
+      reservationId: hasRemainingReservations ? (listing.reservationId || '') : '',
+      updatedAt: new Date().toISOString()
+    });
+  }
+}
+
 async function loadMyListings(currentUser) {
   const shell = document.getElementById('my-listings-shell');
 
@@ -966,6 +1153,15 @@ function getDateKey(value) {
   return '';
 }
 
+function getReservationStatus(reservation = {}) {
+  return String(reservation.status || reservation.reservationStatus || reservation.bookingStatus || 'Pending').trim();
+}
+
+function isReservationActive(reservation = {}) {
+  const status = getReservationStatus(reservation).toLowerCase();
+  return !['cancelled', 'rejected'].includes(status);
+}
+
 function getReservedDateKeys(listing = {}, reservationRecords = []) {
   const reservedDates = new Set();
 
@@ -979,7 +1175,9 @@ function getReservedDateKeys(listing = {}, reservationRecords = []) {
   addValue(listing.reservedDates || listing.reservedDate || listing.bookedDates);
 
   reservationRecords.forEach((record) => {
-    addValue(record.bookedDate || record.date || record.startDate || record.start || record.endDate || record.end || record.reservedDates || record.bookedDates || record.dates);
+    if (isReservationActive(record)) {
+      addValue(record.bookedDate || record.date || record.startDate || record.start || record.endDate || record.end || record.reservedDates || record.bookedDates || record.dates);
+    }
   });
 
   return Array.from(reservedDates);
@@ -1674,6 +1872,7 @@ async function showProfilePage() {
     });
 
     await loadMyListings(currentUser);
+    await loadLenderBookingRequests(currentUser);
   } catch (error) {
     console.error('Unable to load profile data:', error);
   }
