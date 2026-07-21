@@ -1106,6 +1106,38 @@ async function loadCatalogListings() {
                 <div class="catalog-calendar__booking-status" data-role="booking-status">Select a date to check availability.</div>
                 <button type="button" class="catalog-calendar__booking-action" data-listing-id="${escapeHtml(listing.id)}" hidden>Book</button>
               </div>
+              <div class="catalog-payment-panel" hidden>
+                <div class="catalog-payment-panel__header">
+                  <strong>PIVOT Payment System</strong>
+                  <p>No real charges or data storage. This is a demo checkout.</p>
+                </div>
+                <div class="catalog-payment-panel__fields">
+                  <div class="catalog-payment-confirmation" role="status" hidden></div>
+                  <label class="catalog-payment-field">
+                    <span>Name on card</span>
+                    <input type="text" autocomplete="cc-name" placeholder="Abhijeet Hoshing" />
+                  </label>
+                  <label class="catalog-payment-field">
+                    <span>Card number</span>
+                    <input type="text" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" />
+                  </label>
+                  <div class="catalog-payment-row">
+                    <label class="catalog-payment-field">
+                      <span>Expiration</span>
+                      <div class="catalog-payment-row__inline">
+                        <input type="text" inputmode="numeric" maxlength="2" placeholder="12" />
+                        <span>/</span>
+                        <input type="text" inputmode="numeric" maxlength="2" placeholder="28" />
+                      </div>
+                    </label>
+                    <label class="catalog-payment-field catalog-payment-field--cvv">
+                      <span>CVV</span>
+                      <input type="text" inputmode="numeric" maxlength="4" placeholder="123" />
+                    </label>
+                  </div>
+                </div>
+                <button type="button" class="catalog-payment-action" data-listing-id="${escapeHtml(listing.id)}">Pay and complete booking</button>
+              </div>
             </div>
           </div>
         </article>
@@ -1119,11 +1151,22 @@ async function loadCatalogListings() {
 
       const statusEl = calendar.querySelector('.catalog-calendar__booking-status');
       const buttonEl = calendar.querySelector('.catalog-calendar__booking-action');
+      const paymentPanel = calendar.querySelector('.catalog-payment-panel');
       if (!statusEl || !buttonEl) {
         return;
       }
 
       const normalizedSelectedDate = selectedDateKey || calendar.dataset.selectedDate || '';
+      const shouldKeepPaymentPanelOpen = calendar.dataset.paymentConfirmationVisible === 'true';
+      if (!shouldKeepPaymentPanelOpen) {
+        const paymentInputs = calendar.querySelectorAll('.catalog-payment-panel input');
+        paymentInputs.forEach((input) => {
+          input.value = '';
+        });
+      }
+      if (paymentPanel && !shouldKeepPaymentPanelOpen) {
+        paymentPanel.hidden = true;
+      }
       if (!normalizedSelectedDate) {
         statusEl.textContent = 'Select a date to check availability.';
         statusEl.classList.remove('is-booked');
@@ -1155,7 +1198,7 @@ async function loadCatalogListings() {
       calendar.dataset.selectedDate = normalizedSelectedDate;
     };
 
-    const bookListingDate = async (button) => {
+    const showPaymentPanelForBooking = (button) => {
       const listingId = button?.dataset.listingId;
       const selectedDateKey = button?.dataset.selectedDate || button?.closest('.catalog-calendar')?.dataset.selectedDate || '';
 
@@ -1177,15 +1220,58 @@ async function loadCatalogListings() {
 
       const calendar = button.closest('.catalog-calendar');
       const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
+      const paymentPanel = calendar?.querySelector('.catalog-payment-panel');
       const bookingButton = calendar?.querySelector('.catalog-calendar__booking-action');
 
       if (statusEl) {
-        statusEl.textContent = 'Booking this date…';
+        statusEl.textContent = 'Enter your payment details to complete this booking.';
       }
 
       if (bookingButton) {
-        bookingButton.disabled = true;
-        bookingButton.textContent = 'Booking…';
+        bookingButton.disabled = false;
+        bookingButton.textContent = 'Book';
+      }
+
+      if (paymentPanel) {
+        calendar.dataset.paymentConfirmationVisible = 'false';
+        paymentPanel.hidden = false;
+        paymentPanel.classList.add('is-open');
+      }
+    };
+
+    const completeBookingWithPayment = async (button) => {
+      const listingId = button?.dataset.listingId;
+      const selectedDateKey = button?.dataset.selectedDate || button?.closest('.catalog-calendar')?.dataset.selectedDate || '';
+
+      if (!listingId || !selectedDateKey) {
+        return;
+      }
+
+      const currentUser = authService.getCurrentUser();
+      if (!currentUser) {
+        window.alert('Please sign in to book this tool.');
+        window.location.hash = 'login-form';
+        return;
+      }
+
+      const listing = (window.__catalogState.visibleListings || []).find((entry) => entry.id === listingId) || (window.__catalogState.allListings || []).find((entry) => entry.id === listingId);
+      if (!listing) {
+        return;
+      }
+
+      const calendar = button.closest('.catalog-calendar');
+      const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
+      const paymentPanel = calendar?.querySelector('.catalog-payment-panel');
+      const paymentButton = calendar?.querySelector('.catalog-payment-action');
+      const confirmationBanner = document.getElementById('booking-confirmation-banner');
+
+      if (statusEl) {
+        statusEl.textContent = 'Processing your demo payment…';
+      }
+
+      if (paymentButton) {
+        paymentButton.disabled = true;
+        paymentButton.textContent = 'Processing…';
       }
 
       try {
@@ -1268,17 +1354,42 @@ async function loadCatalogListings() {
         };
 
         if (calendar) {
-          const offset = Number(calendar.dataset.monthOffset || '0');
-          renderCalendarForListing(listingId, offset);
+          if (confirmationBanner) {
+            confirmationBanner.textContent = 'Booking confirmed! For additional details including contact information, visit your rental status dashboard';
+            confirmationBanner.hidden = false;
+          }
+
+          window.setTimeout(() => {
+            if (confirmationBanner) {
+              confirmationBanner.textContent = '';
+              confirmationBanner.hidden = true;
+            }
+
+            const paymentInputs = calendar.querySelectorAll('.catalog-payment-panel input');
+            paymentInputs.forEach((input) => {
+              input.value = '';
+            });
+
+            if (paymentPanel) {
+              paymentPanel.hidden = true;
+            }
+
+            const offset = Number(calendar.dataset.monthOffset || '0');
+            renderCalendarForListing(listingId, offset);
+          }, 5000);
+        }
+
+        if (statusEl) {
+          statusEl.textContent = 'Booking confirmed. Your demo payment completed successfully.';
         }
       } catch (error) {
         console.error('Unable to complete booking:', error);
         if (statusEl) {
           statusEl.textContent = 'Unable to book this date right now. Please try again.';
         }
-        if (bookingButton) {
-          bookingButton.disabled = false;
-          bookingButton.textContent = 'Book';
+        if (paymentButton) {
+          paymentButton.disabled = false;
+          paymentButton.textContent = 'Pay and complete booking';
         }
       }
     };
@@ -1382,10 +1493,17 @@ async function loadCatalogListings() {
 
     results.querySelectorAll('.catalog-calendar').forEach((calendar) => {
       calendar.addEventListener('click', (event) => {
+        const paymentButton = event.target.closest('.catalog-payment-action');
+        if (paymentButton) {
+          event.stopPropagation();
+          completeBookingWithPayment(paymentButton);
+          return;
+        }
+
         const bookedButton = event.target.closest('.catalog-calendar__booking-action');
         if (bookedButton) {
           event.stopPropagation();
-          bookListingDate(bookedButton);
+          showPaymentPanelForBooking(bookedButton);
           return;
         }
 
