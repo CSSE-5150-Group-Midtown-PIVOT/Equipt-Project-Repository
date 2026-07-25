@@ -654,13 +654,18 @@ main {
   align-items: center;
   justify-content: center;
   min-height: 1.8rem;
+  border: none;
   border-radius: 8px;
   font-size: 0.8rem;
   font-weight: 600;
+  font-family: inherit;
+  padding: 0;
+  cursor: pointer;
 }
 
 .catalog-calendar__day.is-empty {
   background: transparent;
+  cursor: default;
 }
 
 .catalog-calendar__day.is-available {
@@ -671,6 +676,11 @@ main {
 .catalog-calendar__day.is-reserved {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.catalog-calendar__day.is-selected {
+  outline: 2px solid #2f6fed;
+  outline-offset: 1px;
 }
 
 .catalog-calendar__legend {
@@ -720,6 +730,42 @@ main {
 
 .catalog-calendar__dot--reserved {
   background: #f87171;
+}
+
+.catalog-calendar__booking {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid #dbeafe;
+}
+
+.catalog-calendar__booking-status {
+  color: #475569;
+  font-size: 0.82rem;
+}
+
+.catalog-calendar__booking-status.is-booked {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.catalog-calendar__booking-action {
+  border: none;
+  border-radius: 999px;
+  background: #2f6fed;
+  color: #ffffff;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.catalog-calendar__booking-action:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
 }
 
 .toggle-row {
