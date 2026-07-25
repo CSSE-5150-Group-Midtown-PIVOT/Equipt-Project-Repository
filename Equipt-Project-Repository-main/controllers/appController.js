@@ -973,13 +973,13 @@ function buildCalendarDays(listing = {}, reservationRecords = [], monthDate = ne
   const leadingBlanks = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
 
   for (let i = 0; i < leadingBlanks; i += 1) {
-    monthDays.push({ day: '', reserved: false });
+    monthDays.push({ day: '', reserved: false, dateKey: '' });
   }
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const isReserved = reservedSet.has(dateKey);
-    monthDays.push({ day, reserved: isReserved });
+    monthDays.push({ day, reserved: isReserved, dateKey });
   }
 
   return monthDays;
@@ -987,6 +987,64 @@ function buildCalendarDays(listing = {}, reservationRecords = [], monthDate = ne
 
 function getCalendarCaption(monthDate = new Date()) {
   return monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+function getDateKey(value) {
+  if (!value) {
+    return '';
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(getDateKey).find(Boolean) || '';
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+      return '';
+    }
+
+    const normalizedValue = trimmedValue.includes('T') ? trimmedValue.slice(0, 10) : trimmedValue;
+    return normalizedValue.length >= 10 ? normalizedValue.slice(0, 10) : '';
+  }
+
+  return '';
+}
+
+function getReservedDateKeys(listing = {}, reservationRecords = []) {
+  const reservedDates = new Set();
+
+  const addValue = (value) => {
+    const dateKey = getDateKey(value);
+    if (dateKey) {
+      reservedDates.add(dateKey);
+    }
+  };
+
+  addValue(listing.reservedDates || listing.reservedDate || listing.bookedDates);
+
+  reservationRecords.forEach((record) => {
+    addValue(record.bookedDate || record.date || record.startDate || record.start || record.endDate || record.end || record.reservedDates || record.bookedDates || record.dates);
+  });
+
+  return Array.from(reservedDates);
+}
+
+function formatBookingDateLabel(dateKey = '') {
+  if (!dateKey) {
+    return '';
+  }
+
+  const parsedDate = new Date(`${dateKey}T12:00:00`);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return dateKey;
+  }
+
+  return parsedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 async function loadCatalogListings() {
@@ -1080,13 +1138,22 @@ async function loadCatalogListings() {
                 <span>Su</span>
               </div>
               <div class="catalog-calendar__grid">
-                ${calendarDays.map((day) => `
-                  <div class="catalog-calendar__day ${day.day ? (day.reserved ? 'is-reserved' : 'is-available') : 'is-empty'}">${day.day || ''}</div>
-                `).join('')}
+                ${calendarDays.map((day) => {
+                  if (!day.day) {
+                    return '<div class="catalog-calendar__day is-empty" aria-hidden="true"></div>';
+                  }
+
+                  const classes = ['catalog-calendar__day', day.reserved ? 'is-reserved' : 'is-available'];
+                  return `<button type="button" class="${classes.join(' ')}" data-date-key="${escapeHtml(day.dateKey)}" data-listing-id="${escapeHtml(listing.id)}">${day.day}</button>`;
+                }).join('')}
               </div>
               <div class="catalog-calendar__legend">
                 <span><i class="catalog-calendar__dot catalog-calendar__dot--available"></i> Available</span>
                 <span><i class="catalog-calendar__dot catalog-calendar__dot--reserved"></i> Reserved</span>
+              </div>
+              <div class="catalog-calendar__booking">
+                <div class="catalog-calendar__booking-status" data-role="booking-status">Select a date to check availability.</div>
+                <button type="button" class="catalog-calendar__booking-action" data-listing-id="${escapeHtml(listing.id)}" hidden>Book</button>
               </div>
             </div>
           </div>
@@ -1094,12 +1161,183 @@ async function loadCatalogListings() {
       `;
     }).join('');
 
+    const syncBookingUiForCalendar = (calendar, listing, reservationsForListing, selectedDateKey = '') => {
+      if (!calendar) {
+        return;
+      }
+
+      const statusEl = calendar.querySelector('.catalog-calendar__booking-status');
+      const buttonEl = calendar.querySelector('.catalog-calendar__booking-action');
+      if (!statusEl || !buttonEl) {
+        return;
+      }
+
+      const normalizedSelectedDate = selectedDateKey || calendar.dataset.selectedDate || '';
+      if (!normalizedSelectedDate) {
+        statusEl.textContent = 'Select a date to check availability.';
+        statusEl.classList.remove('is-booked');
+        buttonEl.hidden = true;
+        buttonEl.disabled = true;
+        calendar.dataset.selectedDate = '';
+        return;
+      }
+
+      const reservedDateValues = Array.isArray(listing.reservedDates)
+        ? listing.reservedDates
+        : [listing.reservedDates || listing.reservedDate || listing.bookedDates].filter(Boolean);
+
+      const isBooked = Boolean(
+        reservationsForListing.find((reservation) => {
+          const reservationDate = getDateKey(reservation.bookedDate || reservation.date || reservation.startDate || reservation.start || reservation.endDate || reservation.end || reservation.reservedDates || reservation.bookedDates || reservation.dates);
+          return reservationDate === normalizedSelectedDate;
+        }) || reservedDateValues.some((value) => getDateKey(value) === normalizedSelectedDate)
+      );
+
+      statusEl.textContent = isBooked
+        ? `Booked for ${formatBookingDateLabel(normalizedSelectedDate)}.`
+        : `Available on ${formatBookingDateLabel(normalizedSelectedDate)}.`;
+      statusEl.classList.toggle('is-booked', isBooked);
+
+      buttonEl.hidden = isBooked;
+      buttonEl.disabled = isBooked;
+      buttonEl.dataset.selectedDate = normalizedSelectedDate;
+      calendar.dataset.selectedDate = normalizedSelectedDate;
+    };
+
+    const bookListingDate = async (button) => {
+      const listingId = button?.dataset.listingId;
+      const selectedDateKey = button?.dataset.selectedDate || button?.closest('.catalog-calendar')?.dataset.selectedDate || '';
+
+      if (!listingId || !selectedDateKey) {
+        return;
+      }
+
+      const currentUser = authService.getCurrentUser();
+      if (!currentUser) {
+        window.alert('Please sign in to book this tool.');
+        window.location.hash = 'login-form';
+        return;
+      }
+
+      const listing = (window.__catalogState.visibleListings || []).find((entry) => entry.id === listingId) || (window.__catalogState.allListings || []).find((entry) => entry.id === listingId);
+      if (!listing) {
+        return;
+      }
+
+      const calendar = button.closest('.catalog-calendar');
+      const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
+      const bookingButton = calendar?.querySelector('.catalog-calendar__booking-action');
+
+      if (statusEl) {
+        statusEl.textContent = 'Booking this date…';
+      }
+
+      if (bookingButton) {
+        bookingButton.disabled = true;
+        bookingButton.textContent = 'Booking…';
+      }
+
+      try {
+        const allReservations = window.__catalogState.allReservations || [];
+        const existingReservation = allReservations.find((reservation) => {
+          const reservationDate = getDateKey(reservation.bookedDate || reservation.date || reservation.startDate || reservation.start || reservation.endDate || reservation.end || reservation.reservedDates || reservation.bookedDates || reservation.dates);
+          return (reservation.listingId || reservation.listing || reservation.listingRef || reservation.listing_id) === listingId && reservationDate === selectedDateKey;
+        });
+
+        const nextReservedDates = Array.from(new Set([
+          ...(Array.isArray(listing.reservedDates) ? listing.reservedDates : [listing.reservedDates || listing.reservedDate || listing.bookedDates].filter(Boolean)),
+          selectedDateKey
+        ]));
+
+        const reservationPayload = createReservationSnapshot(listing, {
+          listingId,
+          ownerId: listing.ownerId || currentUser.uid,
+          toolName: listing.toolName || '',
+          bookedDate: selectedDateKey,
+          date: selectedDateKey,
+          bookedRateUsd: getEffectiveDailyRate(listing),
+          status: 'Booked',
+          reservationStatus: 'Booked',
+          bookedAt: new Date().toISOString()
+        });
+
+        let reservationRecord;
+        if (existingReservation?.id) {
+          await databaseService.updateRecord('reservations', existingReservation.id, {
+            ...reservationPayload,
+            updatedAt: new Date().toISOString()
+          });
+          reservationRecord = { id: existingReservation.id, ...reservationPayload };
+        } else {
+          reservationRecord = await databaseService.createRecord('reservations', reservationPayload);
+        }
+
+        await databaseService.updateRecord('listings', listingId, {
+          availability: 'Booked',
+          reservationStatus: 'Booked',
+          bookingId: reservationRecord.id,
+          reservationId: reservationRecord.id,
+          reservedDates: nextReservedDates,
+          updatedAt: new Date().toISOString()
+        });
+
+        const updatedListing = {
+          ...listing,
+          availability: 'Booked',
+          reservationStatus: 'Booked',
+          bookingId: reservationRecord.id,
+          reservationId: reservationRecord.id,
+          reservedDates: nextReservedDates
+        };
+
+        const visibleListings = (window.__catalogState.visibleListings || []).slice();
+        const allListings = (window.__catalogState.allListings || []).slice();
+        const listingIndex = visibleListings.findIndex((entry) => entry.id === listingId);
+        const allListingIndex = allListings.findIndex((entry) => entry.id === listingId);
+        if (listingIndex >= 0) {
+          visibleListings[listingIndex] = updatedListing;
+        }
+        if (allListingIndex >= 0) {
+          allListings[allListingIndex] = updatedListing;
+        }
+
+        const nextReservations = [
+          ...(window.__catalogState.allReservations || []).filter((reservation) => {
+            const reservationDate = getDateKey(reservation.bookedDate || reservation.date || reservation.startDate || reservation.start || reservation.endDate || reservation.end || reservation.reservedDates || reservation.bookedDates || reservation.dates);
+            return !((reservation.listingId || reservation.listing || reservation.listingRef || reservation.listing_id) === listingId && reservationDate === selectedDateKey && reservation.id !== reservationRecord.id);
+          }),
+          { id: reservationRecord.id, ...reservationPayload }
+        ];
+
+        window.__catalogState = {
+          ...window.__catalogState,
+          visibleListings,
+          allListings,
+          allReservations: nextReservations
+        };
+
+        if (calendar) {
+          const offset = Number(calendar.dataset.monthOffset || '0');
+          renderCalendarForListing(listingId, offset);
+        }
+      } catch (error) {
+        console.error('Unable to complete booking:', error);
+        if (statusEl) {
+          statusEl.textContent = 'Unable to book this date right now. Please try again.';
+        }
+        if (bookingButton) {
+          bookingButton.disabled = false;
+          bookingButton.textContent = 'Book';
+        }
+      }
+    };
+
     // Make each listing card expandable: click or Enter/Space toggles details (calendar)
     results.querySelectorAll('.catalog-result-card').forEach((card) => {
       const listingId = card.dataset.listingId;
       card.addEventListener('click', (e) => {
-        // ignore clicks on prev/next nav buttons inside the calendar
-        if (e.target.closest('.catalog-calendar__nav')) return;
+        // ignore clicks on calendar controls and booking actions
+        if (e.target.closest('.catalog-calendar__nav, .catalog-calendar__day, .catalog-calendar__booking-action')) return;
         const isExpanded = card.getAttribute('aria-expanded') === 'true';
         card.setAttribute('aria-expanded', String(!isExpanded));
         const calendar = card.querySelector('.catalog-calendar');
@@ -1142,14 +1380,31 @@ async function loadCatalogListings() {
       const captionEl = calendar.querySelector('.catalog-calendar__caption');
       const countsEl = calendar.querySelector('.catalog-calendar__counts');
       const gridEl = calendar.querySelector('.catalog-calendar__grid');
+      const selectedDateKey = calendar.dataset.selectedDate || '';
+      const monthPrefix = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
+      const activeSelectedDate = selectedDateKey.startsWith(monthPrefix) ? selectedDateKey : '';
+      if (activeSelectedDate !== selectedDateKey) {
+        calendar.dataset.selectedDate = activeSelectedDate;
+      }
 
       if (captionEl) captionEl.textContent = getCalendarCaption(target);
       if (countsEl) countsEl.textContent = `${monthDays.filter((d) => d.day && d.reserved).length} reserved • ${monthDays.filter((d) => d.day && !d.reserved).length} available`;
       if (gridEl) {
-        gridEl.innerHTML = monthDays.map((day) => `
-                  <div class="catalog-calendar__day ${day.day ? (day.reserved ? 'is-reserved' : 'is-available') : 'is-empty'}">${day.day || ''}</div>
-                `).join('');
+        gridEl.innerHTML = monthDays.map((day) => {
+          if (!day.day) {
+            return '<div class="catalog-calendar__day is-empty" aria-hidden="true"></div>';
+          }
+
+          const classes = ['catalog-calendar__day', day.reserved ? 'is-reserved' : 'is-available'];
+          if (calendar.dataset.selectedDate && day.dateKey === calendar.dataset.selectedDate) {
+            classes.push('is-selected');
+          }
+
+          return `<button type="button" class="${classes.join(' ')}" data-date-key="${escapeHtml(day.dateKey)}" data-listing-id="${escapeHtml(listing.id)}">${day.day}</button>`;
+        }).join('');
       }
+      syncBookingUiForCalendar(calendar, listing, reservationsForListing, calendar.dataset.selectedDate || '');
+
       // update prev/next state: hide the prev button on the current month (offset <= 0)
       const prevBtn = calendar.querySelector('.catalog-calendar__prev');
       const nextBtn = calendar.querySelector('.catalog-calendar__next');
@@ -1173,6 +1428,26 @@ async function loadCatalogListings() {
         nextBtn.classList.remove('is-disabled');
       }
     };
+
+    results.querySelectorAll('.catalog-calendar').forEach((calendar) => {
+      calendar.addEventListener('click', (event) => {
+        const bookedButton = event.target.closest('.catalog-calendar__booking-action');
+        if (bookedButton) {
+          event.stopPropagation();
+          bookListingDate(bookedButton);
+          return;
+        }
+
+        const dayButton = event.target.closest('.catalog-calendar__day');
+        if (!dayButton || dayButton.classList.contains('is-empty') || !dayButton.dataset.dateKey) {
+          return;
+        }
+
+        event.stopPropagation();
+        calendar.dataset.selectedDate = dayButton.dataset.dateKey;
+        renderCalendarForListing(dayButton.dataset.listingId, Number(calendar.dataset.monthOffset || '0'));
+      });
+    });
 
     // Wire prev/next month buttons
     results.querySelectorAll('.catalog-calendar__prev').forEach((btn) => {
