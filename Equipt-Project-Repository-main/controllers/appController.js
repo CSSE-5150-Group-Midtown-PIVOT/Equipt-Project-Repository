@@ -536,6 +536,88 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
+function normalizeRentalStatus(value = '') {
+  const rawStatus = String(value || '').trim().toLowerCase();
+
+  if (!rawStatus) {
+    return 'confirmed';
+  }
+
+  if (['booked', 'reserved', 'pending', 'confirmed', 'pending confirmation'].includes(rawStatus)) {
+    return 'confirmed';
+  }
+
+  if (['active', 'in progress', 'in-progress'].includes(rawStatus)) {
+    return 'active';
+  }
+
+  if (['returned', 'complete', 'completed'].includes(rawStatus)) {
+    return 'returned';
+  }
+
+  if (['cancelled', 'canceled'].includes(rawStatus)) {
+    return 'cancelled';
+  }
+
+  return rawStatus;
+}
+
+function getRentalStatusLabel(status = '') {
+  const normalizedStatus = normalizeRentalStatus(status);
+
+  switch (normalizedStatus) {
+    case 'active':
+      return 'Active';
+    case 'returned':
+      return 'Returned';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'confirmed':
+    default:
+      return 'Confirmed';
+  }
+}
+
+function getRentalStatusClass(status = '') {
+  const normalizedStatus = normalizeRentalStatus(status);
+
+  switch (normalizedStatus) {
+    case 'active':
+      return 'rental-status-chip--active';
+    case 'returned':
+      return 'rental-status-chip--returned';
+    case 'cancelled':
+      return 'rental-status-chip--cancelled';
+    case 'confirmed':
+    default:
+      return 'rental-status-chip--confirmed';
+  }
+}
+
+function getAllowedRentalStatusTransitions(status = '') {
+  const normalizedStatus = normalizeRentalStatus(status);
+
+  if (!normalizedStatus || normalizedStatus === 'returned' || normalizedStatus === 'cancelled') {
+    return [];
+  }
+
+  if (normalizedStatus === 'confirmed') {
+    return [
+      { label: 'Mark as Active', nextStatus: 'active' },
+      { label: 'Cancel Rental', nextStatus: 'cancelled' }
+    ];
+  }
+
+  if (normalizedStatus === 'active') {
+    return [
+      { label: 'Mark as Returned', nextStatus: 'returned' },
+      { label: 'Cancel Rental', nextStatus: 'cancelled' }
+    ];
+  }
+
+  return [];
+}
+
 async function readImageFilesAsDataUrls(files = []) {
   const fileList = Array.isArray(files) ? files : [];
   const readers = fileList.filter(Boolean).map((file) => new Promise((resolve, reject) => {
@@ -546,6 +628,64 @@ async function readImageFilesAsDataUrls(files = []) {
   }));
 
   return Promise.all(readers);
+}
+
+async function loadMyRentals(currentUser) {
+  const shell = document.getElementById('my-rentals-shell');
+
+  if (!shell || !currentUser) {
+    return;
+  }
+
+  shell.innerHTML = '<p class="empty-state">Loading your rentals…</p>';
+
+  try {
+    const allReservations = await databaseService.readRecords('reservations');
+    const allUsers = await databaseService.readRecords('users');
+    const userLookup = new Map((allUsers || []).map((user) => [user.uid || user.id, user]));
+    const myRentals = (allReservations || []).filter((reservation) => {
+      const renterId = reservation.renterId || reservation.userId || reservation.bookedBy || '';
+      return renterId === currentUser.uid;
+    });
+
+    if (!myRentals.length) {
+      shell.innerHTML = '<p class="empty-state">You have not booked any rentals yet.</p>';
+      return;
+    }
+
+    shell.innerHTML = myRentals.map((reservation) => {
+      const rentalStatus = normalizeRentalStatus(reservation.reservationStatus || reservation.status || 'confirmed');
+      const ownerProfile = userLookup.get(reservation.ownerId || '') || null;
+      const contactName = [ownerProfile?.firstName, ownerProfile?.lastName].filter(Boolean).join(' ') || 'Lender';
+      const contactEmail = ownerProfile?.email || reservation.ownerEmail || '';
+      const contactPhone = ownerProfile?.phone || '';
+      const contactMarkup = rentalStatus === 'confirmed'
+        ? `
+          <div class="rental-contact-card">
+            <p><strong>Contact:</strong> ${escapeHtml(contactName)}</p>
+            ${contactEmail ? `<p><strong>Email:</strong> ${escapeHtml(contactEmail)}</p>` : ''}
+            ${contactPhone ? `<p><strong>Phone:</strong> ${escapeHtml(contactPhone)}</p>` : ''}
+          </div>
+        `
+        : '';
+
+      return `
+        <article class="listing-card">
+          <div class="listing-card__body">
+            <div class="listing-card__details">
+              <h4>${escapeHtml(reservation.toolName || 'Rental')}</h4>
+              <p><strong>Booking ID:</strong> ${escapeHtml(reservation.id)}</p>
+              <p><strong>Status:</strong> <span class="rental-status-chip ${escapeHtml(getRentalStatusClass(rentalStatus))}">${escapeHtml(getRentalStatusLabel(rentalStatus))}</span></p>
+              ${contactMarkup}
+            </div>
+          </div>
+        </article>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Unable to load your rentals:', error);
+    shell.innerHTML = '<p class="empty-state">We could not load your rentals right now.</p>';
+  }
 }
 
 async function loadMyListings(currentUser) {
@@ -559,12 +699,27 @@ async function loadMyListings(currentUser) {
 
   try {
     const allListings = await databaseService.readRecords('listings');
+    const allReservations = await databaseService.readRecords('reservations');
+    const allUsers = await databaseService.readRecords('users');
     const ownerListings = (allListings || []).filter((listing) => listing.ownerId === currentUser.uid);
+    const userLookup = new Map((allUsers || []).map((user) => [user.uid || user.id, user]));
 
     if (!ownerListings.length) {
       shell.innerHTML = '<p class="empty-state">You have not published any listings yet.</p>';
       return;
     }
+
+    const reservationsByListingId = new Map();
+    (allReservations || []).forEach((reservation) => {
+      const listingId = reservation.listingId || reservation.listing?.id || '';
+      if (!listingId) {
+        return;
+      }
+
+      const reservationsForListing = reservationsByListingId.get(listingId) || [];
+      reservationsForListing.push(reservation);
+      reservationsByListingId.set(listingId, reservationsForListing);
+    });
 
     shell.innerHTML = ownerListings.map((listing) => {
       const photoUrl = Array.isArray(listing.photos) && listing.photos.length > 0 ? listing.photos[0] : '';
@@ -572,6 +727,28 @@ async function loadMyListings(currentUser) {
       const rate = getEffectiveDailyRate(listing);
       const availability = listing.availability || 'Available now';
       const category = listing.category || listing.itemCategory || 'Uncategorized';
+      const reservationsForListing = reservationsByListingId.get(listing.id) || [];
+      const reservation = reservationsForListing.find((entry) => entry.id === listing.reservationId || entry.id === listing.bookingId || (entry.listingId || entry.listing?.id || '') === listing.id) || reservationsForListing[0] || null;
+      const rentalStatus = normalizeRentalStatus(reservation?.reservationStatus || reservation?.status || listing.reservationStatus || listing.status || 'confirmed');
+      const rentalStatusLabel = getRentalStatusLabel(rentalStatus);
+      const rentalStatusClass = getRentalStatusClass(rentalStatus);
+      const allowedTransitions = getAllowedRentalStatusTransitions(rentalStatus);
+      const renterProfile = reservation ? (userLookup.get(reservation.renterId || '') || null) : null;
+      const renterName = [renterProfile?.firstName, renterProfile?.lastName].filter(Boolean).join(' ') || 'Renter';
+      const renterEmail = renterProfile?.email || reservation?.renterEmail || '';
+      const renterPhone = renterProfile?.phone || '';
+      const transitionMarkup = allowedTransitions.length > 0
+        ? `<div class="rental-status-actions">${allowedTransitions.map((transition) => `<button type="button" class="secondary rental-status-action" data-action="update-rental-status" data-current-status="${escapeHtml(rentalStatus)}" data-listing-id="${escapeHtml(listing.id)}" data-reservation-id="${escapeHtml(reservation?.id || listing.reservationId || listing.bookingId || '')}" data-next-status="${escapeHtml(transition.nextStatus)}">${escapeHtml(transition.label)}</button>`).join('')}</div>`
+        : '';
+      const contactMarkup = rentalStatus === 'confirmed' && reservation
+        ? `
+          <div class="rental-contact-card">
+            <p><strong>Renter contact:</strong> ${escapeHtml(renterName)}</p>
+            ${renterEmail ? `<p><strong>Email:</strong> ${escapeHtml(renterEmail)}</p>` : ''}
+            ${renterPhone ? `<p><strong>Phone:</strong> ${escapeHtml(renterPhone)}</p>` : ''}
+          </div>
+        `
+        : '';
 
       return `
         <article class="listing-card" data-listing-id="${escapeHtml(listing.id)}">
@@ -585,6 +762,17 @@ async function loadMyListings(currentUser) {
               <p><strong>Daily rate:</strong> ${escapeHtml(formatUsdRate(rate))}</p>
               <p><strong>Availability:</strong> ${escapeHtml(availability)}</p>
               <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+              ${reservation ? `
+                <div class="rental-status-panel">
+                  <div class="rental-status-panel__header">
+                    <strong>Rental status</strong>
+                    <span class="rental-status-chip ${escapeHtml(rentalStatusClass)}">${escapeHtml(rentalStatusLabel)}</span>
+                  </div>
+                  <p class="rental-status-panel__hint">Advance the booking through the lender workflow as the rental progresses.</p>
+                  ${transitionMarkup}
+                  ${contactMarkup}
+                </div>
+              ` : ''}
             </div>
           </div>
           <div class="listing-card__actions">
@@ -757,6 +945,45 @@ async function loadMyListings(currentUser) {
         card.querySelector('[data-action="cancel-edit"]')?.addEventListener('click', async () => {
           await loadMyListings(currentUser);
         });
+      });
+    });
+
+    shell.querySelectorAll('[data-action="update-rental-status"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const listingId = button.getAttribute('data-listing-id');
+        const reservationId = button.getAttribute('data-reservation-id');
+        const nextStatus = button.getAttribute('data-next-status');
+        const currentStatus = button.getAttribute('data-current-status');
+        const listing = ownerListings.find((entry) => entry.id === listingId);
+
+        if (!listing || !nextStatus || !reservationId) {
+          return;
+        }
+
+        const allowedTransitions = getAllowedRentalStatusTransitions(currentStatus);
+        const isAllowed = allowedTransitions.some((transition) => transition.nextStatus === nextStatus);
+
+        if (!isAllowed) {
+          window.alert('That transition is not allowed. Please use the next valid step only.');
+          return;
+        }
+
+        try {
+          await databaseService.updateRecord('reservations', reservationId, {
+            reservationStatus: nextStatus,
+            status: nextStatus,
+            updatedAt: new Date().toISOString()
+          });
+          await databaseService.updateRecord('listings', listing.id, {
+            reservationStatus: nextStatus,
+            status: nextStatus,
+            updatedAt: new Date().toISOString()
+          });
+          await loadMyListings(currentUser);
+        } catch (error) {
+          console.error('Unable to update rental status:', error);
+          window.alert('We could not update the rental status right now.');
+        }
       });
     });
 
@@ -1203,12 +1430,14 @@ async function loadCatalogListings() {
         const reservationPayload = createReservationSnapshot(listing, {
           listingId,
           ownerId: listing.ownerId || currentUser.uid,
+          renterId: currentUser.uid,
+          renterEmail: currentUser.email || '',
           toolName: listing.toolName || '',
           bookedDate: selectedDateKey,
           date: selectedDateKey,
           bookedRateUsd: getEffectiveDailyRate(listing),
-          status: 'Booked',
-          reservationStatus: 'Booked',
+          status: 'Confirmed',
+          reservationStatus: 'confirmed',
           bookedAt: new Date().toISOString()
         });
 
@@ -1225,7 +1454,7 @@ async function loadCatalogListings() {
 
         await databaseService.updateRecord('listings', listingId, {
           availability: 'Booked',
-          reservationStatus: 'Booked',
+          reservationStatus: 'confirmed',
           bookingId: reservationRecord.id,
           reservationId: reservationRecord.id,
           reservedDates: nextReservedDates,
@@ -1235,7 +1464,7 @@ async function loadCatalogListings() {
         const updatedListing = {
           ...listing,
           availability: 'Booked',
-          reservationStatus: 'Booked',
+          reservationStatus: 'confirmed',
           bookingId: reservationRecord.id,
           reservationId: reservationRecord.id,
           reservedDates: nextReservedDates
@@ -1674,6 +1903,7 @@ async function showProfilePage() {
     });
 
     await loadMyListings(currentUser);
+    await loadMyRentals(currentUser);
   } catch (error) {
     console.error('Unable to load profile data:', error);
   }
