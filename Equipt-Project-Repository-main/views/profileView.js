@@ -36,6 +36,16 @@ export function renderProfileView(profile = {}) {
       </div>
       <div id="my-listings-shell" class="my-listings-shell"></div>
     </section>
+
+    <section class="card">
+      <div class="profile-section-header">
+        <h3>Renter Reservations</h3>
+        <p>Track your upcoming rentals, cancellations, and reservation history.</p>
+      </div>
+      <div id="reservation-status" class="form-status" hidden></div>
+      <div id="upcoming-rentals-shell" class="reservation-shell"></div>
+      <div id="history-rentals-shell" class="reservation-shell"></div>
+    </section>
   `;
 }
 

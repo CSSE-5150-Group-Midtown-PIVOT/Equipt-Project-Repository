@@ -7,6 +7,7 @@ import { renderListToolView } from '../views/listToolView.js';
 import { AuthService } from '../services/authService.js';
 import { DatabaseService } from '../services/databaseService.js';
 import { createReservationSnapshot, formatUsdRate, getEffectiveDailyRate, normalizeDailyRate, shouldBlockRateChange } from '../services/pricingService.js';
+import { buildReservationCancellationSummary, formatReservationDateTime, getRefundPolicy } from '../services/reservationService.js';
 
 // Main controller for routing between starter pages.
 // Add page-specific logic here as the app grows.
@@ -536,6 +537,25 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
+function formatCurrency(amount = 0) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount || 0));
+}
+
+function getReservationPhoto(reservation = {}) {
+  const photos = reservation.photos || reservation.toolPhotos || reservation.listing?.photos || [];
+  if (Array.isArray(photos) && photos.length > 0) {
+    return photos[0];
+  }
+  if (typeof photos === 'string') {
+    return photos;
+  }
+  return '';
+}
+
+function getReservationToolName(reservation = {}) {
+  return reservation.toolName || reservation.listing?.toolName || reservation.listingName || 'Tool reservation';
+}
+
 async function readImageFilesAsDataUrls(files = []) {
   const fileList = Array.isArray(files) ? files : [];
   const readers = fileList.filter(Boolean).map((file) => new Promise((resolve, reject) => {
@@ -939,6 +959,10 @@ function buildCalendarDays(listing = {}, reservationRecords = [], monthDate = ne
 
   // gather reservation dates from records
   reservationRecords.forEach((rec) => {
+    const normalizedStatus = String(rec.status || rec.reservationStatus || '').trim().toLowerCase();
+    if (normalizedStatus === 'cancelled') {
+      return;
+    }
     addDateKey(rec.startDate || rec.bookedDate || rec.date || rec.bookedAt || rec.start || rec.reservedDates || rec.bookedDates || rec.dates || rec.endDate || rec.end);
   });
 
@@ -1381,6 +1405,197 @@ function showToolCatalogPage() {
   loadCatalogListings();
 }
 
+async function loadRenterReservations(currentUser) {
+  const statusEl = document.getElementById('reservation-status');
+  const upcomingShell = document.getElementById('upcoming-rentals-shell');
+  const historyShell = document.getElementById('history-rentals-shell');
+
+  if (!currentUser || !upcomingShell || !historyShell) {
+    return;
+  }
+
+  if (statusEl) {
+    statusEl.textContent = 'Loading your reservations…';
+    statusEl.hidden = false;
+    statusEl.classList.remove('form-error');
+    statusEl.classList.add('form-success');
+  }
+
+  try {
+    const allReservations = await databaseService.readRecords('reservations');
+    const renterReservations = (allReservations || []).filter((reservation) => {
+      const renterId = reservation.renterId || reservation.renter?.uid || reservation.userId || reservation.user?.uid || reservation.createdByUserId;
+      return renterId === currentUser.uid;
+    });
+
+    const upcoming = renterReservations.filter((reservation) => {
+      const summary = buildReservationCancellationSummary(reservation);
+      const normalizedStatus = String(reservation.status || '').trim().toLowerCase();
+      return normalizedStatus !== 'cancelled' && !summary.hasStarted && !summary.hasEnded && (summary.eligible || normalizedStatus === 'confirmed' || normalizedStatus === 'booked' || normalizedStatus === 'reserved');
+    });
+
+    const history = renterReservations.filter((reservation) => {
+      const summary = buildReservationCancellationSummary(reservation);
+      const normalizedStatus = String(reservation.status || '').trim().toLowerCase();
+      return normalizedStatus === 'cancelled' || summary.hasStarted || summary.hasEnded || (!summary.eligible && normalizedStatus !== 'confirmed' && normalizedStatus !== 'booked' && normalizedStatus !== 'reserved');
+    });
+
+    upcomingShell.innerHTML = upcoming.length
+      ? upcoming.map((reservation) => {
+        const summary = buildReservationCancellationSummary(reservation);
+        const refundPolicy = getRefundPolicy(reservation);
+        const photo = getReservationPhoto(reservation);
+        const toolName = getReservationToolName(reservation);
+        const status = String(reservation.status || 'Confirmed').trim();
+        return `
+          <article class="reservation-card" data-reservation-id="${escapeHtml(reservation.id)}">
+            <div class="reservation-card__media">
+              ${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(toolName)}" />` : '<div class="reservation-card__placeholder">No photo</div>'}
+            </div>
+            <div class="reservation-card__details">
+              <h4>${escapeHtml(toolName)}</h4>
+              <p><strong>Dates:</strong> ${escapeHtml(formatReservationDateTime(reservation.startAt || reservation.startDateTime || reservation.startDate || reservation.start))} – ${escapeHtml(formatReservationDateTime(reservation.endAt || reservation.endDateTime || reservation.endDate || reservation.end))}</p>
+              <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+              <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
+              <p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>
+              ${summary.eligible
+          ? `<button type="button" class="secondary reservation-cancel-btn" data-reservation-id="${escapeHtml(reservation.id)}">Cancel Reservation</button>`
+          : `<p class="reservation-message">${escapeHtml(summary.message)}</p>`}
+            </div>
+          </article>
+        `;
+      }).join('')
+      : '<p class="empty-state">You do not have any upcoming rentals right now.</p>';
+
+    historyShell.innerHTML = history.length
+      ? history.map((reservation) => {
+        const summary = buildReservationCancellationSummary(reservation);
+        const refundPolicy = getRefundPolicy(reservation);
+        const photo = getReservationPhoto(reservation);
+        const toolName = getReservationToolName(reservation);
+        const status = String(reservation.status || 'Completed').trim();
+        return `
+          <article class="reservation-card reservation-card--history">
+            <div class="reservation-card__media">
+              ${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(toolName)}" />` : '<div class="reservation-card__placeholder">No photo</div>'}
+            </div>
+            <div class="reservation-card__details">
+              <h4>${escapeHtml(toolName)}</h4>
+              <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+              <p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>
+              <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
+            </div>
+          </article>
+        `;
+      }).join('')
+      : '<p class="empty-state">No cancelled or completed reservations yet.</p>';
+
+    upcomingShell.querySelectorAll('.reservation-cancel-btn').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const reservationId = button.getAttribute('data-reservation-id');
+        const reservation = renterReservations.find((entry) => entry.id === reservationId);
+
+        if (!reservation) {
+          return;
+        }
+
+        const summary = buildReservationCancellationSummary(reservation);
+        const refundPolicy = getRefundPolicy(reservation);
+        const photo = getReservationPhoto(reservation);
+        const toolName = getReservationToolName(reservation);
+        const modalMarkup = `
+          <div class="reservation-modal-backdrop" role="dialog" aria-modal="true" aria-label="Cancel reservation confirmation">
+            <div class="reservation-modal">
+              <h3>Cancel Reservation</h3>
+              <div class="reservation-modal__body">
+                <div class="reservation-modal__image">
+                  ${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(toolName)}" />` : '<div class="reservation-modal__placeholder">No photo</div>'}
+                </div>
+                <div class="reservation-modal__content">
+                  <p><strong>${escapeHtml(toolName)}</strong></p>
+                  <p><strong>Start:</strong> ${escapeHtml(formatReservationDateTime(reservation.startAt || reservation.startDateTime || reservation.startDate || reservation.start))}</p>
+                  <p><strong>End:</strong> ${escapeHtml(formatReservationDateTime(reservation.endAt || reservation.endDateTime || reservation.endDate || reservation.end))}</p>
+                  <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
+                  <p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>
+                  <label class="reservation-modal__field" for="cancellation-reason">
+                    <span>Reason</span>
+                    <select id="cancellation-reason">
+                      <option value="Plans changed">Plans changed</option>
+                      <option value="No longer need the tool">No longer need the tool</option>
+                      <option value="Found another tool">Found another tool</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div class="reservation-modal__actions">
+                <button type="button" class="secondary" data-action="keep-reservation">Keep Reservation</button>
+                <button type="button" class="primary reservation-modal__confirm" data-action="confirm-cancellation">Confirm Cancellation</button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const modalRoot = document.createElement('div');
+        modalRoot.innerHTML = modalMarkup;
+        document.body.appendChild(modalRoot.firstElementChild);
+
+        modalRoot.firstElementChild?.querySelector('[data-action="keep-reservation"]')?.addEventListener('click', () => {
+          modalRoot.firstElementChild.remove();
+        });
+
+        modalRoot.firstElementChild?.querySelector('[data-action="confirm-cancellation"]')?.addEventListener('click', async () => {
+          const reason = modalRoot.firstElementChild?.querySelector('#cancellation-reason')?.value || 'Other';
+          const cancellationPayload = {
+            status: 'Cancelled',
+            reservationStatus: 'Cancelled',
+            cancelledAt: new Date().toISOString(),
+            cancellationReason: reason,
+            cancellationRequestedAt: new Date().toISOString(),
+            cancellationBy: currentUser.uid,
+            cancelledBy: 'renter',
+            lenderNotifiedAt: new Date().toISOString(),
+            lenderNotified: true
+          };
+
+          await databaseService.updateRecord('reservations', reservation.id, cancellationPayload);
+
+          if (reservation.listingId) {
+            await databaseService.updateRecord('listings', reservation.listingId, {
+              availability: 'Available now',
+              reservationStatus: 'Cancelled',
+              updatedAt: new Date().toISOString()
+            });
+          }
+          modalRoot.firstElementChild.remove();
+          if (statusEl) {
+            statusEl.textContent = 'Your reservation has been cancelled. Your refund is being processed.';
+            statusEl.hidden = false;
+            statusEl.classList.remove('form-error');
+            statusEl.classList.add('form-success');
+          }
+          await loadRenterReservations(currentUser);
+        });
+      });
+    });
+
+    if (statusEl) {
+      statusEl.textContent = 'Your reservations are up to date.';
+      statusEl.hidden = false;
+      statusEl.classList.remove('form-error');
+      statusEl.classList.add('form-success');
+    }
+  } catch (error) {
+    console.error('Unable to load renter reservations:', error);
+    if (statusEl) {
+      statusEl.textContent = 'We could not load your reservations right now.';
+      statusEl.hidden = false;
+      statusEl.classList.add('form-error');
+      statusEl.classList.remove('form-success');
+    }
+  }
+}
+
 async function showProfilePage() {
   const currentUser = authService.getCurrentUser();
 
@@ -1424,6 +1639,7 @@ async function showProfilePage() {
     });
 
     await loadMyListings(currentUser);
+    await loadRenterReservations(currentUser);
   } catch (error) {
     console.error('Unable to load profile data:', error);
   }
