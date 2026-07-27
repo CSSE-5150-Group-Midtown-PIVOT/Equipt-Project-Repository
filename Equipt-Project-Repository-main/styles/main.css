@@ -790,6 +790,69 @@ main {
   cursor: not-allowed;
 }
 
+.booking-requests-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.booking-request-card {
+  padding: 0.9rem;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.booking-request-card__body {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.booking-request-card__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.booking-requests__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.booking-requests__subheading {
+  margin: 0;
+  color: #0f2a4a;
+  font-size: 1rem;
+}
+
+.booking-history {
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 0.7rem 0.8rem;
+}
+
+.booking-history summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #0f2a4a;
+}
+
+.booking-history__list {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.booking-request-card--history {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
 .catalog-payment-panel {
   margin-top: 0.6rem;
   padding: 0.7rem;

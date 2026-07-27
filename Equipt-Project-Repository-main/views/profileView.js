@@ -44,6 +44,14 @@ export function renderProfileView(profile = {}) {
       </div>
       <div id="my-rentals-shell" class="my-rentals-shell"></div>
     </section>
+
+    <section class="card">
+      <div class="profile-section-header">
+        <h3>Booking Requests</h3>
+        <p>Review incoming requests for your tools and manage pending or confirmed bookings.</p>
+      </div>
+      <div id="booking-requests-shell" class="booking-requests-shell"></div>
+    </section>
   `;
 }
 
