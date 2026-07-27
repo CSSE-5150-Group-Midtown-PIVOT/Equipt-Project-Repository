@@ -39,10 +39,12 @@ export function renderProfileView(profile = {}) {
 
     <section class="card">
       <div class="profile-section-header">
-        <h3>My Rentals</h3>
-        <p>Track the current status of the tools you have booked.</p>
+        <h3>Renter Reservations</h3>
+        <p>Track your upcoming rentals, cancellations, and reservation history.</p>
       </div>
-      <div id="my-rentals-shell" class="my-rentals-shell"></div>
+      <div id="reservation-status" class="form-status" hidden></div>
+      <div id="upcoming-rentals-shell" class="reservation-shell"></div>
+      <div id="history-rentals-shell" class="reservation-shell"></div>
     </section>
 
     <section class="card">
