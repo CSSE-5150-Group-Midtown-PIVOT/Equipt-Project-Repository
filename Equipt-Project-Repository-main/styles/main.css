@@ -1189,7 +1189,8 @@ button.secondary {
   margin-bottom: 0.75rem;
 }
 
-.my-listings-shell {
+.my-listings-shell,
+.my-rentals-shell {
   display: grid;
   gap: 0.9rem;
 }
@@ -1275,6 +1276,87 @@ button.secondary {
 }
 .listing-card {
   overflow: hidden;
+}
+
+.rental-status-panel {
+  margin-top: 0.8rem;
+  padding: 0.8rem;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.rental-status-panel__header {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rental-status-panel__hint {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.rental-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.24rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.rental-status-chip--confirmed {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.rental-status-chip--active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.rental-status-chip--returned {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.rental-status-chip--cancelled {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.rental-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.rental-status-action {
+  flex: 1 1 160px;
+}
+
+.rental-contact-card {
+  margin-top: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.rental-contact-card p {
+  margin: 0;
+  color: #334155;
 }
 
 .listing-edit-form .form-field input,
