@@ -556,6 +556,88 @@ function getReservationToolName(reservation = {}) {
   return reservation.toolName || reservation.listing?.toolName || reservation.listingName || 'Tool reservation';
 }
 
+function normalizeRentalStatus(value = '') {
+  const rawStatus = String(value || '').trim().toLowerCase();
+
+  if (!rawStatus) {
+    return 'confirmed';
+  }
+
+  if (['booked', 'reserved', 'pending', 'confirmed', 'pending confirmation'].includes(rawStatus)) {
+    return 'confirmed';
+  }
+
+  if (['active', 'in progress', 'in-progress'].includes(rawStatus)) {
+    return 'active';
+  }
+
+  if (['returned', 'complete', 'completed'].includes(rawStatus)) {
+    return 'returned';
+  }
+
+  if (['cancelled', 'canceled'].includes(rawStatus)) {
+    return 'cancelled';
+  }
+
+  return rawStatus;
+}
+
+function getRentalStatusLabel(status = '') {
+  const normalizedStatus = normalizeRentalStatus(status);
+
+  switch (normalizedStatus) {
+    case 'active':
+      return 'Active';
+    case 'returned':
+      return 'Returned';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'confirmed':
+    default:
+      return 'Confirmed';
+  }
+}
+
+function getRentalStatusClass(status = '') {
+  const normalizedStatus = normalizeRentalStatus(status);
+
+  switch (normalizedStatus) {
+    case 'active':
+      return 'rental-status-chip--active';
+    case 'returned':
+      return 'rental-status-chip--returned';
+    case 'cancelled':
+      return 'rental-status-chip--cancelled';
+    case 'confirmed':
+    default:
+      return 'rental-status-chip--confirmed';
+  }
+}
+
+function getAllowedRentalStatusTransitions(status = '') {
+  const normalizedStatus = normalizeRentalStatus(status);
+
+  if (!normalizedStatus || normalizedStatus === 'returned' || normalizedStatus === 'cancelled') {
+    return [];
+  }
+
+  if (normalizedStatus === 'confirmed') {
+    return [
+      { label: 'Mark as Active', nextStatus: 'active' },
+      { label: 'Cancel Rental', nextStatus: 'cancelled' }
+    ];
+  }
+
+  if (normalizedStatus === 'active') {
+    return [
+      { label: 'Mark as Returned', nextStatus: 'returned' },
+      { label: 'Cancel Rental', nextStatus: 'cancelled' }
+    ];
+  }
+
+  return [];
+}
+
 async function readImageFilesAsDataUrls(files = []) {
   const fileList = Array.isArray(files) ? files : [];
   const readers = fileList.filter(Boolean).map((file) => new Promise((resolve, reject) => {
@@ -566,6 +648,251 @@ async function readImageFilesAsDataUrls(files = []) {
   }));
 
   return Promise.all(readers);
+}
+
+async function loadMyRentals(currentUser) {
+  const shell = document.getElementById('my-rentals-shell');
+
+  if (!shell || !currentUser) {
+    return;
+  }
+
+  shell.innerHTML = '<p class="empty-state">Loading your rentals…</p>';
+
+  try {
+    const allReservations = await databaseService.readRecords('reservations');
+    const allUsers = await databaseService.readRecords('users');
+    const userLookup = new Map((allUsers || []).map((user) => [user.uid || user.id, user]));
+    const myRentals = (allReservations || []).filter((reservation) => {
+      const renterId = reservation.renterId || reservation.userId || reservation.bookedBy || '';
+      return renterId === currentUser.uid;
+    });
+
+    if (!myRentals.length) {
+      shell.innerHTML = '<p class="empty-state">You have not booked any rentals yet.</p>';
+      return;
+    }
+
+    shell.innerHTML = myRentals.map((reservation) => {
+      const rentalStatus = normalizeRentalStatus(reservation.reservationStatus || reservation.status || 'confirmed');
+      const ownerProfile = userLookup.get(reservation.ownerId || '') || null;
+      const contactName = [ownerProfile?.firstName, ownerProfile?.lastName].filter(Boolean).join(' ') || 'Lender';
+      const contactEmail = ownerProfile?.email || reservation.ownerEmail || '';
+      const contactPhone = ownerProfile?.phone || '';
+      const contactMarkup = rentalStatus === 'confirmed'
+        ? `
+          <div class="rental-contact-card">
+            <p><strong>Contact:</strong> ${escapeHtml(contactName)}</p>
+            ${contactEmail ? `<p><strong>Email:</strong> ${escapeHtml(contactEmail)}</p>` : ''}
+            ${contactPhone ? `<p><strong>Phone:</strong> ${escapeHtml(contactPhone)}</p>` : ''}
+          </div>
+        `
+        : '';
+
+      return `
+        <article class="listing-card">
+          <div class="listing-card__body">
+            <div class="listing-card__details">
+              <h4>${escapeHtml(reservation.toolName || 'Rental')}</h4>
+              <p><strong>Booking ID:</strong> ${escapeHtml(reservation.id)}</p>
+              <p><strong>Status:</strong> <span class="rental-status-chip ${escapeHtml(getRentalStatusClass(rentalStatus))}">${escapeHtml(getRentalStatusLabel(rentalStatus))}</span></p>
+              ${contactMarkup}
+            </div>
+          </div>
+        </article>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Unable to load your rentals:', error);
+    shell.innerHTML = '<p class="empty-state">We could not load your rentals right now.</p>';
+  }
+}
+
+async function loadLenderBookingRequests(currentUser) {
+  const shell = document.getElementById('booking-requests-shell');
+
+  if (!shell || !currentUser) {
+    return;
+  }
+
+  shell.innerHTML = '<p class="empty-state">Loading booking requests…</p>';
+
+  try {
+    const [allListings, allReservations] = await Promise.all([
+      databaseService.readRecords('listings'),
+      databaseService.readRecords('reservations')
+    ]);
+
+    const ownerListings = (allListings || []).filter((listing) => listing.ownerId === currentUser.uid);
+    const ownerListingIds = new Set(ownerListings.map((listing) => listing.id));
+    const ownerReservations = (allReservations || []).filter((reservation) => {
+      const listingId = reservation.listingId || reservation.listing?.id || reservation.listing_id || '';
+      return ownerListingIds.has(listingId);
+    });
+
+    const activeReservations = ownerReservations.filter((reservation) => isReservationActive(reservation));
+    const historyReservations = ownerReservations.filter((reservation) => !isReservationActive(reservation));
+
+    const sortReservations = (reservations = []) => reservations.sort((left, right) => {
+      const leftDate = getDateKey(left.startDate || left.start || left.bookedDate || left.date || left.reservedDates || left.bookedDates || left.dates || left.bookedAt || '');
+      const rightDate = getDateKey(right.startDate || right.start || right.bookedDate || right.date || right.reservedDates || right.bookedDates || right.dates || right.bookedAt || '');
+      return leftDate.localeCompare(rightDate);
+    });
+
+    const sortedActiveReservations = sortReservations(activeReservations);
+    const sortedHistoryReservations = sortReservations(historyReservations);
+
+    const renderReservationCard = (reservation) => {
+      const listing = ownerListings.find((entry) => entry.id === (reservation.listingId || reservation.listing?.id || reservation.listing_id)) || {};
+      const bookingState = getReservationStatus(reservation);
+      const bookingDateKey = getDateKey(reservation.startDate || reservation.start || reservation.bookedDate || reservation.date || reservation.reservedDates || reservation.bookedDates || reservation.dates || reservation.bookedAt || '');
+      const bookingDateLabel = bookingDateKey ? new Date(`${bookingDateKey}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date selected';
+      const startDate = bookingDateKey ? new Date(`${bookingDateKey}T12:00:00`) : null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const isFutureBooking = startDate ? startDate >= today : false;
+      const normalizedStatus = String(bookingState || 'Pending').trim().toLowerCase();
+      const canReject = ['pending', 'pending request', 'requested'].includes(normalizedStatus);
+      const canCancel = ['confirmed', 'booked', 'accepted'].includes(normalizedStatus) && isFutureBooking;
+
+      return `
+        <article class="booking-request-card ${!isReservationActive(reservation) ? 'booking-request-card--history' : ''}" data-reservation-id="${escapeHtml(reservation.id)}">
+          <div class="booking-request-card__body">
+            <div>
+              <h4>${escapeHtml(listing.toolName || 'Tool request')}</h4>
+              <p><strong>Tool:</strong> ${escapeHtml(listing.toolName || 'Unknown listing')}</p>
+              <p><strong>Date:</strong> ${escapeHtml(bookingDateLabel)}</p>
+              <p><strong>Status:</strong> ${escapeHtml(bookingState || 'Pending')}</p>
+              ${reservation.reason ? `<p><strong>Reason:</strong> ${escapeHtml(reservation.reason)}</p>` : ''}
+            </div>
+            <div class="booking-request-card__actions">
+              ${canReject ? `<button type="button" class="secondary" data-action="reject-booking" data-reservation-id="${escapeHtml(reservation.id)}">Reject</button>` : ''}
+              ${canCancel ? `<button type="button" class="primary" data-action="cancel-booking" data-reservation-id="${escapeHtml(reservation.id)}">Cancel</button>` : ''}
+            </div>
+          </div>
+        </article>
+      `;
+    };
+
+    const activeMarkup = sortedActiveReservations.length
+      ? sortedActiveReservations.map(renderReservationCard).join('')
+      : '<p class="empty-state">No active booking requests.</p>';
+
+    const historyMarkup = sortedHistoryReservations.length
+      ? `
+        <details class="booking-history">
+          <summary>Booking History (${sortedHistoryReservations.length})</summary>
+          <div class="booking-history__list">
+            ${sortedHistoryReservations.map(renderReservationCard).join('')}
+          </div>
+        </details>
+      `
+      : '<p class="empty-state">No booking history yet.</p>';
+
+    shell.innerHTML = `
+      <div class="booking-requests__section">
+        <h4 class="booking-requests__subheading">Active Requests</h4>
+        ${activeMarkup}
+      </div>
+      <div class="booking-requests__section">
+        <h4 class="booking-requests__subheading">Booking History</h4>
+        ${historyMarkup}
+      </div>
+    `;
+
+    shell.querySelectorAll('[data-action="reject-booking"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const reservationId = button.getAttribute('data-reservation-id');
+        const reservation = ownerReservations.find((entry) => entry.id === reservationId);
+        if (!reservation) {
+          return;
+        }
+
+        const confirmed = window.confirm('Are you sure you want to reject this booking request?');
+        if (!confirmed) {
+          return;
+        }
+
+        const reason = window.prompt('Optional reason for rejection:', '');
+        await updateBookingState(reservation, 'Rejected', reason || '');
+        await loadLenderBookingRequests(currentUser);
+        await loadMyListings(currentUser);
+        await loadCatalogListings();
+      });
+    });
+
+    shell.querySelectorAll('[data-action="cancel-booking"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const reservationId = button.getAttribute('data-reservation-id');
+        const reservation = ownerReservations.find((entry) => entry.id === reservationId);
+        if (!reservation) {
+          return;
+        }
+
+        const confirmed = window.confirm('Are you sure you want to cancel this booking?');
+        if (!confirmed) {
+          return;
+        }
+
+        const reason = window.prompt('Optional reason for cancellation:', '');
+        await updateBookingState(reservation, 'Cancelled', reason || '');
+        await loadLenderBookingRequests(currentUser);
+        await loadMyListings(currentUser);
+        await loadCatalogListings();
+      });
+    });
+  } catch (error) {
+    console.error('Unable to load lender booking requests:', error);
+    shell.innerHTML = '<p class="empty-state">We could not load booking requests right now.</p>';
+  }
+}
+
+async function updateBookingState(reservation = {}, nextStatus = 'Cancelled', reason = '') {
+  const listingId = reservation.listingId || reservation.listing?.id || reservation.listing_id || '';
+  if (!listingId) {
+    return;
+  }
+
+  const [allListings, allReservations] = await Promise.all([
+    databaseService.readRecords('listings'),
+    databaseService.readRecords('reservations')
+  ]);
+
+  const listing = (allListings || []).find((entry) => entry.id === listingId);
+  const reservationDateKey = getDateKey(reservation.startDate || reservation.start || reservation.bookedDate || reservation.date || reservation.reservedDates || reservation.bookedDates || reservation.dates || reservation.bookedAt || '');
+  const otherActiveReservations = (allReservations || []).filter((entry) => {
+    const entryListingId = entry.listingId || entry.listing?.id || entry.listing_id || '';
+    const entryDateKey = getDateKey(entry.startDate || entry.start || entry.bookedDate || entry.date || entry.reservedDates || entry.bookedDates || entry.dates || entry.bookedAt || '');
+    return entryListingId === listingId && entry.id !== reservation.id && isReservationActive(entry) && (!reservationDateKey || !entryDateKey || entryDateKey !== reservationDateKey);
+  });
+
+  const existingReservedDates = Array.isArray(listing?.reservedDates)
+    ? listing.reservedDates
+    : [listing?.reservedDates || listing?.reservedDate || listing?.bookedDates].filter(Boolean);
+  const nextReservedDates = Array.from(new Set([
+    ...existingReservedDates.filter((value) => getDateKey(value) !== reservationDateKey),
+    ...otherActiveReservations.flatMap((entry) => getDateKey(entry.startDate || entry.start || entry.bookedDate || entry.date || entry.reservedDates || entry.bookedDates || entry.dates || entry.bookedAt || ''))
+  ].filter(Boolean)));
+
+  const hasRemainingReservations = nextReservedDates.length > 0;
+
+  await databaseService.updateRecord('reservations', reservation.id, {
+    status: nextStatus,
+    reservationStatus: nextStatus,
+    reason: reason || reservation.reason || '',
+    updatedAt: new Date().toISOString()
+  });
+
+  if (listing) {
+    await databaseService.updateRecord('listings', listing.id, {
+      availability: hasRemainingReservations ? 'Booked' : 'Available now',
+      reservationStatus: hasRemainingReservations ? 'Booked' : 'Available now',
+      reservedDates: nextReservedDates,
+      bookingId: hasRemainingReservations ? (listing.bookingId || '') : '',
+      reservationId: hasRemainingReservations ? (listing.reservationId || '') : '',
+      updatedAt: new Date().toISOString()
+    });
+  }
 }
 
 async function loadMyListings(currentUser) {
@@ -579,12 +906,27 @@ async function loadMyListings(currentUser) {
 
   try {
     const allListings = await databaseService.readRecords('listings');
+    const allReservations = await databaseService.readRecords('reservations');
+    const allUsers = await databaseService.readRecords('users');
     const ownerListings = (allListings || []).filter((listing) => listing.ownerId === currentUser.uid);
+    const userLookup = new Map((allUsers || []).map((user) => [user.uid || user.id, user]));
 
     if (!ownerListings.length) {
       shell.innerHTML = '<p class="empty-state">You have not published any listings yet.</p>';
       return;
     }
+
+    const reservationsByListingId = new Map();
+    (allReservations || []).forEach((reservation) => {
+      const listingId = reservation.listingId || reservation.listing?.id || '';
+      if (!listingId) {
+        return;
+      }
+
+      const reservationsForListing = reservationsByListingId.get(listingId) || [];
+      reservationsForListing.push(reservation);
+      reservationsByListingId.set(listingId, reservationsForListing);
+    });
 
     shell.innerHTML = ownerListings.map((listing) => {
       const photoUrl = Array.isArray(listing.photos) && listing.photos.length > 0 ? listing.photos[0] : '';
@@ -592,6 +934,28 @@ async function loadMyListings(currentUser) {
       const rate = getEffectiveDailyRate(listing);
       const availability = listing.availability || 'Available now';
       const category = listing.category || listing.itemCategory || 'Uncategorized';
+      const reservationsForListing = reservationsByListingId.get(listing.id) || [];
+      const reservation = reservationsForListing.find((entry) => entry.id === listing.reservationId || entry.id === listing.bookingId || (entry.listingId || entry.listing?.id || '') === listing.id) || reservationsForListing[0] || null;
+      const rentalStatus = normalizeRentalStatus(reservation?.reservationStatus || reservation?.status || listing.reservationStatus || listing.status || 'confirmed');
+      const rentalStatusLabel = getRentalStatusLabel(rentalStatus);
+      const rentalStatusClass = getRentalStatusClass(rentalStatus);
+      const allowedTransitions = getAllowedRentalStatusTransitions(rentalStatus);
+      const renterProfile = reservation ? (userLookup.get(reservation.renterId || '') || null) : null;
+      const renterName = [renterProfile?.firstName, renterProfile?.lastName].filter(Boolean).join(' ') || 'Renter';
+      const renterEmail = renterProfile?.email || reservation?.renterEmail || '';
+      const renterPhone = renterProfile?.phone || '';
+      const transitionMarkup = allowedTransitions.length > 0
+        ? `<div class="rental-status-actions">${allowedTransitions.map((transition) => `<button type="button" class="secondary rental-status-action" data-action="update-rental-status" data-current-status="${escapeHtml(rentalStatus)}" data-listing-id="${escapeHtml(listing.id)}" data-reservation-id="${escapeHtml(reservation?.id || listing.reservationId || listing.bookingId || '')}" data-next-status="${escapeHtml(transition.nextStatus)}">${escapeHtml(transition.label)}</button>`).join('')}</div>`
+        : '';
+      const contactMarkup = rentalStatus === 'confirmed' && reservation
+        ? `
+          <div class="rental-contact-card">
+            <p><strong>Renter contact:</strong> ${escapeHtml(renterName)}</p>
+            ${renterEmail ? `<p><strong>Email:</strong> ${escapeHtml(renterEmail)}</p>` : ''}
+            ${renterPhone ? `<p><strong>Phone:</strong> ${escapeHtml(renterPhone)}</p>` : ''}
+          </div>
+        `
+        : '';
 
       return `
         <article class="listing-card" data-listing-id="${escapeHtml(listing.id)}">
@@ -605,6 +969,17 @@ async function loadMyListings(currentUser) {
               <p><strong>Daily rate:</strong> ${escapeHtml(formatUsdRate(rate))}</p>
               <p><strong>Availability:</strong> ${escapeHtml(availability)}</p>
               <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+              ${reservation ? `
+                <div class="rental-status-panel">
+                  <div class="rental-status-panel__header">
+                    <strong>Rental status</strong>
+                    <span class="rental-status-chip ${escapeHtml(rentalStatusClass)}">${escapeHtml(rentalStatusLabel)}</span>
+                  </div>
+                  <p class="rental-status-panel__hint">Advance the booking through the lender workflow as the rental progresses.</p>
+                  ${transitionMarkup}
+                  ${contactMarkup}
+                </div>
+              ` : ''}
             </div>
           </div>
           <div class="listing-card__actions">
@@ -777,6 +1152,45 @@ async function loadMyListings(currentUser) {
         card.querySelector('[data-action="cancel-edit"]')?.addEventListener('click', async () => {
           await loadMyListings(currentUser);
         });
+      });
+    });
+
+    shell.querySelectorAll('[data-action="update-rental-status"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const listingId = button.getAttribute('data-listing-id');
+        const reservationId = button.getAttribute('data-reservation-id');
+        const nextStatus = button.getAttribute('data-next-status');
+        const currentStatus = button.getAttribute('data-current-status');
+        const listing = ownerListings.find((entry) => entry.id === listingId);
+
+        if (!listing || !nextStatus || !reservationId) {
+          return;
+        }
+
+        const allowedTransitions = getAllowedRentalStatusTransitions(currentStatus);
+        const isAllowed = allowedTransitions.some((transition) => transition.nextStatus === nextStatus);
+
+        if (!isAllowed) {
+          window.alert('That transition is not allowed. Please use the next valid step only.');
+          return;
+        }
+
+        try {
+          await databaseService.updateRecord('reservations', reservationId, {
+            reservationStatus: nextStatus,
+            status: nextStatus,
+            updatedAt: new Date().toISOString()
+          });
+          await databaseService.updateRecord('listings', listing.id, {
+            reservationStatus: nextStatus,
+            status: nextStatus,
+            updatedAt: new Date().toISOString()
+          });
+          await loadMyListings(currentUser);
+        } catch (error) {
+          console.error('Unable to update rental status:', error);
+          window.alert('We could not update the rental status right now.');
+        }
       });
     });
 
@@ -1015,6 +1429,15 @@ function getDateKey(value) {
   return '';
 }
 
+function getReservationStatus(reservation = {}) {
+  return String(reservation.status || reservation.reservationStatus || 'Pending').trim();
+}
+
+function isReservationActive(reservation = {}) {
+  const status = getReservationStatus(reservation).toLowerCase();
+  return !['cancelled', 'canceled', 'rejected', 'returned', 'completed'].includes(status);
+}
+
 function getReservedDateKeys(listing = {}, reservationRecords = []) {
   const reservedDates = new Set();
 
@@ -1155,6 +1578,38 @@ async function loadCatalogListings() {
                 <div class="catalog-calendar__booking-status" data-role="booking-status">Select a date to check availability.</div>
                 <button type="button" class="catalog-calendar__booking-action" data-listing-id="${escapeHtml(listing.id)}" hidden>Book</button>
               </div>
+              <div class="catalog-payment-panel" hidden>
+                <div class="catalog-payment-panel__header">
+                  <strong>PIVOT Payment System</strong>
+                  <p>No real charges or data storage. This is a demo checkout.</p>
+                </div>
+                <div class="catalog-payment-panel__fields">
+                  <div class="catalog-payment-confirmation" role="status" hidden></div>
+                  <label class="catalog-payment-field">
+                    <span>Name on card</span>
+                    <input type="text" autocomplete="cc-name" placeholder="Abhijeet Hoshing" />
+                  </label>
+                  <label class="catalog-payment-field">
+                    <span>Card number</span>
+                    <input type="text" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" />
+                  </label>
+                  <div class="catalog-payment-row">
+                    <label class="catalog-payment-field">
+                      <span>Expiration</span>
+                      <div class="catalog-payment-row__inline">
+                        <input type="text" inputmode="numeric" maxlength="2" placeholder="12" />
+                        <span>/</span>
+                        <input type="text" inputmode="numeric" maxlength="2" placeholder="28" />
+                      </div>
+                    </label>
+                    <label class="catalog-payment-field catalog-payment-field--cvv">
+                      <span>CVV</span>
+                      <input type="text" inputmode="numeric" maxlength="4" placeholder="123" />
+                    </label>
+                  </div>
+                </div>
+                <button type="button" class="catalog-payment-action" data-listing-id="${escapeHtml(listing.id)}">Pay and complete booking</button>
+              </div>
             </div>
           </div>
         </article>
@@ -1168,11 +1623,22 @@ async function loadCatalogListings() {
 
       const statusEl = calendar.querySelector('.catalog-calendar__booking-status');
       const buttonEl = calendar.querySelector('.catalog-calendar__booking-action');
+      const paymentPanel = calendar.querySelector('.catalog-payment-panel');
       if (!statusEl || !buttonEl) {
         return;
       }
 
       const normalizedSelectedDate = selectedDateKey || calendar.dataset.selectedDate || '';
+      const shouldKeepPaymentPanelOpen = calendar.dataset.paymentConfirmationVisible === 'true';
+      if (!shouldKeepPaymentPanelOpen) {
+        const paymentInputs = calendar.querySelectorAll('.catalog-payment-panel input');
+        paymentInputs.forEach((input) => {
+          input.value = '';
+        });
+      }
+      if (paymentPanel && !shouldKeepPaymentPanelOpen) {
+        paymentPanel.hidden = true;
+      }
       if (!normalizedSelectedDate) {
         statusEl.textContent = 'Select a date to check availability.';
         statusEl.classList.remove('is-booked');
@@ -1204,7 +1670,7 @@ async function loadCatalogListings() {
       calendar.dataset.selectedDate = normalizedSelectedDate;
     };
 
-    const bookListingDate = async (button) => {
+    const showPaymentPanelForBooking = (button) => {
       const listingId = button?.dataset.listingId;
       const selectedDateKey = button?.dataset.selectedDate || button?.closest('.catalog-calendar')?.dataset.selectedDate || '';
 
@@ -1226,15 +1692,58 @@ async function loadCatalogListings() {
 
       const calendar = button.closest('.catalog-calendar');
       const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
+      const paymentPanel = calendar?.querySelector('.catalog-payment-panel');
       const bookingButton = calendar?.querySelector('.catalog-calendar__booking-action');
 
       if (statusEl) {
-        statusEl.textContent = 'Booking this date…';
+        statusEl.textContent = 'Enter your payment details to complete this booking.';
       }
 
       if (bookingButton) {
-        bookingButton.disabled = true;
-        bookingButton.textContent = 'Booking…';
+        bookingButton.disabled = false;
+        bookingButton.textContent = 'Book';
+      }
+
+      if (paymentPanel) {
+        calendar.dataset.paymentConfirmationVisible = 'false';
+        paymentPanel.hidden = false;
+        paymentPanel.classList.add('is-open');
+      }
+    };
+
+    const completeBookingWithPayment = async (button) => {
+      const listingId = button?.dataset.listingId;
+      const selectedDateKey = button?.dataset.selectedDate || button?.closest('.catalog-calendar')?.dataset.selectedDate || '';
+
+      if (!listingId || !selectedDateKey) {
+        return;
+      }
+
+      const currentUser = authService.getCurrentUser();
+      if (!currentUser) {
+        window.alert('Please sign in to book this tool.');
+        window.location.hash = 'login-form';
+        return;
+      }
+
+      const listing = (window.__catalogState.visibleListings || []).find((entry) => entry.id === listingId) || (window.__catalogState.allListings || []).find((entry) => entry.id === listingId);
+      if (!listing) {
+        return;
+      }
+
+      const calendar = button.closest('.catalog-calendar');
+      const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
+      const paymentPanel = calendar?.querySelector('.catalog-payment-panel');
+      const paymentButton = calendar?.querySelector('.catalog-payment-action');
+      const confirmationBanner = document.getElementById('booking-confirmation-banner');
+
+      if (statusEl) {
+        statusEl.textContent = 'Processing your demo payment…';
+      }
+
+      if (paymentButton) {
+        paymentButton.disabled = true;
+        paymentButton.textContent = 'Processing…';
       }
 
       try {
@@ -1252,12 +1761,14 @@ async function loadCatalogListings() {
         const reservationPayload = createReservationSnapshot(listing, {
           listingId,
           ownerId: listing.ownerId || currentUser.uid,
+          renterId: currentUser.uid,
+          renterEmail: currentUser.email || '',
           toolName: listing.toolName || '',
           bookedDate: selectedDateKey,
           date: selectedDateKey,
           bookedRateUsd: getEffectiveDailyRate(listing),
-          status: 'Booked',
-          reservationStatus: 'Booked',
+          status: 'Confirmed',
+          reservationStatus: 'confirmed',
           bookedAt: new Date().toISOString()
         });
 
@@ -1274,7 +1785,7 @@ async function loadCatalogListings() {
 
         await databaseService.updateRecord('listings', listingId, {
           availability: 'Booked',
-          reservationStatus: 'Booked',
+          reservationStatus: 'confirmed',
           bookingId: reservationRecord.id,
           reservationId: reservationRecord.id,
           reservedDates: nextReservedDates,
@@ -1284,7 +1795,7 @@ async function loadCatalogListings() {
         const updatedListing = {
           ...listing,
           availability: 'Booked',
-          reservationStatus: 'Booked',
+          reservationStatus: 'confirmed',
           bookingId: reservationRecord.id,
           reservationId: reservationRecord.id,
           reservedDates: nextReservedDates
@@ -1317,17 +1828,42 @@ async function loadCatalogListings() {
         };
 
         if (calendar) {
-          const offset = Number(calendar.dataset.monthOffset || '0');
-          renderCalendarForListing(listingId, offset);
+          if (confirmationBanner) {
+            confirmationBanner.textContent = 'Booking confirmed! For additional details including contact information, visit your rental status dashboard';
+            confirmationBanner.hidden = false;
+          }
+
+          window.setTimeout(() => {
+            if (confirmationBanner) {
+              confirmationBanner.textContent = '';
+              confirmationBanner.hidden = true;
+            }
+
+            const paymentInputs = calendar.querySelectorAll('.catalog-payment-panel input');
+            paymentInputs.forEach((input) => {
+              input.value = '';
+            });
+
+            if (paymentPanel) {
+              paymentPanel.hidden = true;
+            }
+
+            const offset = Number(calendar.dataset.monthOffset || '0');
+            renderCalendarForListing(listingId, offset);
+          }, 5000);
+        }
+
+        if (statusEl) {
+          statusEl.textContent = 'Booking confirmed. Your demo payment completed successfully.';
         }
       } catch (error) {
         console.error('Unable to complete booking:', error);
         if (statusEl) {
           statusEl.textContent = 'Unable to book this date right now. Please try again.';
         }
-        if (bookingButton) {
-          bookingButton.disabled = false;
-          bookingButton.textContent = 'Book';
+        if (paymentButton) {
+          paymentButton.disabled = false;
+          paymentButton.textContent = 'Pay and complete booking';
         }
       }
     };
@@ -1431,10 +1967,17 @@ async function loadCatalogListings() {
 
     results.querySelectorAll('.catalog-calendar').forEach((calendar) => {
       calendar.addEventListener('click', (event) => {
+        const paymentButton = event.target.closest('.catalog-payment-action');
+        if (paymentButton) {
+          event.stopPropagation();
+          completeBookingWithPayment(paymentButton);
+          return;
+        }
+
         const bookedButton = event.target.closest('.catalog-calendar__booking-action');
         if (bookedButton) {
           event.stopPropagation();
-          bookListingDate(bookedButton);
+          showPaymentPanelForBooking(bookedButton);
           return;
         }
 
@@ -1915,6 +2458,7 @@ async function showProfilePage() {
 
     await loadMyListings(currentUser);
     await loadRenterReservations(currentUser);
+    await loadLenderBookingRequests(currentUser);
   } catch (error) {
     console.error('Unable to load profile data:', error);
   }
