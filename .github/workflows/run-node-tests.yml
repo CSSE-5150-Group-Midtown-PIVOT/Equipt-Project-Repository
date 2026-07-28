@@ -1,0 +1,27 @@
+name: Run Node Tests
+
+on:
+  push: {}
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies (if package.json exists)
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+          fi
+
+      - name: Run tests
+        run: node tests.js
