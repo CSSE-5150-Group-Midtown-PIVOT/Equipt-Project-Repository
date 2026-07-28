@@ -1,7 +1,22 @@
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function renderProfileView(profile = {}) {
   const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || 'Your name';
   const email = profile.email || 'No email available';
   const phone = profile.phone || 'Not provided';
+  const profilePhoto = profile.profilePhoto || '';
+  const initials = [profile.firstName, profile.lastName]
+    .map((value) => String(value || '').trim().charAt(0).toUpperCase())
+    .filter(Boolean)
+    .join('')
+    .slice(0, 2) || 'U';
   const role = profile.role === 'Both'
     ? 'Both (Lender & Renter)'
     : profile.role === 'Lender'
@@ -13,14 +28,28 @@ export function renderProfileView(profile = {}) {
 
   return `
     <section class="card">
-      <h2>Profile</h2>
-      <p>Your account details are shown below.</p>
-      <div class="profile-details">
-        <p><strong>Name:</strong> ${fullName}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Phone:</strong> ${phone}</p>
-        <p><strong>Role:</strong> ${role}</p>
-        <p><strong>Member since:</strong> ${joined}</p>
+      <div class="profile-card-layout">
+        <div class="profile-card-content">
+          <h2>Profile</h2>
+          <p>Your account details are shown below.</p>
+          <div class="profile-details">
+            <p><strong>Name:</strong> ${fullName}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Phone:</strong> ${phone}</p>
+            <p><strong>Role:</strong> ${role}</p>
+            <p><strong>Member since:</strong> ${joined}</p>
+          </div>
+        </div>
+        <div class="profile-photo-panel">
+          <div class="profile-photo-bubble" id="profile-photo-bubble" aria-label="Profile picture">
+            ${profilePhoto
+              ? `<img src="${escapeHtml(profilePhoto)}" alt="${escapeHtml(fullName)} profile photo" />`
+    : `<span>${initials}</span>`}
+          </div>
+          <input id="profile-photo-input" name="profilePhoto" type="file" accept="image/*" hidden />
+          <button type="button" id="change-profile-photo-btn" class="secondary">${profilePhoto ? 'Change Photo' : 'Upload Photo'}</button>
+          <p id="profile-photo-status" class="profile-photo-status" hidden></p>
+        </div>
       </div>
 
       <div class="profile-form-actions profile-form-actions--top">

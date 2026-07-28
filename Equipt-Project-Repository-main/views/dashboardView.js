@@ -1,36 +1,37 @@
 // Tool catalog page.
 export function renderDashboardView() {
   return `
-    <section class="card catalog-card">
-      <div class="catalog-header">
-        <div>
-          <p class="catalog-eyebrow">Nearby rentals</p>
-          <h2>Browse Tools</h2>
-          <p class="catalog-subtext">Find tools available to rent near you.</p>
+    <section class="catalog-page">
+      <div class="card catalog-card">
+        <div class="catalog-header">
+          <div>
+            <p class="catalog-eyebrow">Nearby rentals</p>
+            <h2>Browse Tools</h2>
+            <p class="catalog-subtext">Find tools available to rent near you.</p>
+          </div>
         </div>
-      </div>
 
-      <div class="catalog-toolbar">
-        <div class="catalog-toolbar__main">
-          <input id="tool-search" class="search-input" type="text" placeholder="Search for drills, ladders, pressure washers…" />
-          <input id="tool-location" class="search-input" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="ZIP code" />
-          <button id="search-tools" class="primary" type="button">Search</button>
+        <div class="catalog-toolbar">
+          <div class="catalog-toolbar__main">
+            <input id="tool-search" class="search-input" type="text" placeholder="Search for drills, ladders, pressure washers…" />
+            <input id="tool-location" class="search-input" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="ZIP code" />
+            <button id="search-tools" class="primary" type="button">Search</button>
+          </div>
+          <div class="catalog-toolbar__secondary">
+            <select id="sort-select" class="category-select">
+              <option value="recommended">Sort: Recommended</option>
+              <option value="price-low">Price: Low to High</option>
+              <option value="price-high">Price: High to Low</option>
+              <option value="newest">Newest Listings</option>
+            </select>
+            <button id="toggle-filters" class="secondary catalog-filter-toggle" type="button">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M3 5h18v2l-7 8v5l-4 2v-7L3 7V5z" fill="currentColor"/></svg>
+              <span>Filter</span>
+            </button>
+          </div>
         </div>
-        <div class="catalog-toolbar__secondary">
-          <select id="sort-select" class="category-select">
-            <option value="recommended">Sort: Recommended</option>
-            <option value="price-low">Price: Low to High</option>
-            <option value="price-high">Price: High to Low</option>
-            <option value="newest">Newest Listings</option>
-          </select>
-          <button id="toggle-filters" class="secondary catalog-filter-toggle" type="button">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M3 5h18v2l-7 8v5l-4 2v-7L3 7V5z" fill="currentColor"/></svg>
-            <span>Filter</span>
-          </button>
-        </div>
-      </div>
 
-      <div id="catalog-feedback" class="catalog-feedback" role="status" aria-live="polite" hidden></div>
+        <div id="catalog-feedback" class="catalog-feedback" role="status" aria-live="polite" hidden></div>
 
       <div id="optional-filters" class="optional-filters hidden">
         <div class="filter-header-row">
@@ -245,8 +246,9 @@ export function renderDashboardView() {
         </div>
       </div>
 
-      <div class="catalog-results">
-        <div class="catalog-results__empty">Browse available tools or refine your filters to see results.</div>
+        <div class="catalog-results">
+          <div class="catalog-results__empty">Browse available tools or refine your filters to see results.</div>
+        </div>
       </div>
     </section>
   `;

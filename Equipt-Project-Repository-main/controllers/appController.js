@@ -650,6 +650,56 @@ async function readImageFilesAsDataUrls(files = []) {
   return Promise.all(readers);
 }
 
+async function readOptimizedProfilePhotoDataUrl(file, options = {}) {
+  const {
+    maxDimension = 512,
+    initialQuality = 0.82,
+    minQuality = 0.5,
+    targetMaxBytes = 360 * 1024
+  } = options;
+
+  const asDataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Unable to read profile image file.'));
+    reader.readAsDataURL(file);
+  });
+
+  const image = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Unable to load profile image for processing.'));
+    img.src = asDataUrl;
+  });
+
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  const scale = Math.min(1, maxDimension / Math.max(width, height));
+  const targetWidth = Math.max(1, Math.round(width * scale));
+  const targetHeight = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Unable to process image in this browser.');
+  }
+
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+  let quality = initialQuality;
+  let output = canvas.toDataURL('image/jpeg', quality);
+
+  while (output.length > targetMaxBytes * 1.37 && quality > minQuality) {
+    quality = Math.max(minQuality, quality - 0.08);
+    output = canvas.toDataURL('image/jpeg', quality);
+  }
+
+  return output;
+}
+
 async function loadMyRentals(currentUser) {
   const shell = document.getElementById('my-rentals-shell');
 
@@ -730,35 +780,93 @@ async function loadLenderBookingRequests(currentUser) {
       return ownerListingIds.has(listingId);
     });
 
-    const activeReservations = ownerReservations.filter((reservation) => isReservationActive(reservation));
-    const historyReservations = ownerReservations.filter((reservation) => !isReservationActive(reservation));
+    const getReservationDateKey = (reservation = {}) => getDateKey(
+      reservation.startDate ||
+      reservation.start ||
+      reservation.bookedDate ||
+      reservation.date ||
+      reservation.reservedDates ||
+      reservation.bookedDates ||
+      reservation.dates ||
+      reservation.bookedAt || ''
+    );
 
-    const sortReservations = (reservations = []) => reservations.sort((left, right) => {
-      const leftDate = getDateKey(left.startDate || left.start || left.bookedDate || left.date || left.reservedDates || left.bookedDates || left.dates || left.bookedAt || '');
-      const rightDate = getDateKey(right.startDate || right.start || right.bookedDate || right.date || right.reservedDates || right.bookedDates || right.dates || right.bookedAt || '');
+    const sortReservations = (reservations = [], direction = 'asc') => reservations.sort((left, right) => {
+      const leftDate = getReservationDateKey(left);
+      const rightDate = getReservationDateKey(right);
+
+      if (direction === 'desc') {
+        return rightDate.localeCompare(leftDate);
+      }
+
       return leftDate.localeCompare(rightDate);
     });
 
-    const sortedActiveReservations = sortReservations(activeReservations);
-    const sortedHistoryReservations = sortReservations(historyReservations);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const cancelledStatuses = new Set(['cancelled', 'canceled', 'rejected']);
+    const completedStatuses = new Set(['returned', 'completed']);
 
-    const renderReservationCard = (reservation) => {
+    const getStatusBucket = (reservation = {}) => {
+      const normalizedStatus = String(getReservationStatus(reservation) || 'Pending').trim().toLowerCase();
+      const dateKey = getReservationDateKey(reservation);
+      const startDate = dateKey ? new Date(`${dateKey}T12:00:00`) : null;
+      const isPastReservation = Boolean(startDate && startDate < today);
+
+      if (cancelledStatuses.has(normalizedStatus)) {
+        return 'cancelled';
+      }
+
+      if (completedStatuses.has(normalizedStatus) || isPastReservation) {
+        return 'completed';
+      }
+
+      return 'upcoming';
+    };
+
+    const groupedReservations = {
+      upcoming: [],
+      completed: [],
+      cancelled: []
+    };
+
+    ownerReservations.forEach((reservation) => {
+      groupedReservations[getStatusBucket(reservation)].push(reservation);
+    });
+
+    sortReservations(groupedReservations.upcoming, 'asc');
+    sortReservations(groupedReservations.completed, 'desc');
+    sortReservations(groupedReservations.cancelled, 'desc');
+
+    const getMonthLabel = (dateKey = '') => {
+      if (!dateKey) {
+        return 'No Date';
+      }
+
+      const parsedDate = new Date(`${dateKey}T12:00:00`);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return 'No Date';
+      }
+
+      return parsedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    };
+
+    const renderReservationCard = (reservation, bucket = 'upcoming') => {
       const listing = ownerListings.find((entry) => entry.id === (reservation.listingId || reservation.listing?.id || reservation.listing_id)) || {};
       const bookingState = getReservationStatus(reservation);
-      const bookingDateKey = getDateKey(reservation.startDate || reservation.start || reservation.bookedDate || reservation.date || reservation.reservedDates || reservation.bookedDates || reservation.dates || reservation.bookedAt || '');
+      const bookingDateKey = getReservationDateKey(reservation);
       const bookingDateLabel = bookingDateKey ? new Date(`${bookingDateKey}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date selected';
       const startDate = bookingDateKey ? new Date(`${bookingDateKey}T12:00:00`) : null;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
       const isFutureBooking = startDate ? startDate >= today : false;
       const normalizedStatus = String(bookingState || 'Pending').trim().toLowerCase();
       const canReject = ['pending', 'pending request', 'requested'].includes(normalizedStatus);
       const canCancel = ['confirmed', 'booked', 'accepted'].includes(normalizedStatus) && isFutureBooking;
+      const cardClass = bucket === 'cancelled' ? 'booking-request-card booking-request-card--cancelled' : 'booking-request-card';
 
       return `
-        <article class="booking-request-card ${!isReservationActive(reservation) ? 'booking-request-card--history' : ''}" data-reservation-id="${escapeHtml(reservation.id)}">
+        <article class="${cardClass}" data-reservation-id="${escapeHtml(reservation.id)}">
           <div class="booking-request-card__body">
-            <div>
+            <div class="booking-request-card__details">
               <h4>${escapeHtml(listing.toolName || 'Tool request')}</h4>
               <p><strong>Tool:</strong> ${escapeHtml(listing.toolName || 'Unknown listing')}</p>
               <p><strong>Date:</strong> ${escapeHtml(bookingDateLabel)}</p>
@@ -774,29 +882,80 @@ async function loadLenderBookingRequests(currentUser) {
       `;
     };
 
-    const activeMarkup = sortedActiveReservations.length
-      ? sortedActiveReservations.map(renderReservationCard).join('')
-      : '<p class="empty-state">No active booking requests.</p>';
+    const renderMonthGroups = (reservations = [], bucket = 'upcoming') => {
+      const monthGroups = new Map();
 
-    const historyMarkup = sortedHistoryReservations.length
-      ? `
-        <details class="booking-history">
-          <summary>Booking History (${sortedHistoryReservations.length})</summary>
-          <div class="booking-history__list">
-            ${sortedHistoryReservations.map(renderReservationCard).join('')}
+      reservations.forEach((reservation) => {
+        const dateKey = getReservationDateKey(reservation);
+        const monthSortKey = dateKey ? dateKey.slice(0, 7) : '9999-99';
+        const monthLabel = getMonthLabel(dateKey);
+        const groupKey = `${monthSortKey}__${monthLabel}`;
+
+        if (!monthGroups.has(groupKey)) {
+          monthGroups.set(groupKey, {
+            monthSortKey,
+            monthLabel,
+            items: []
+          });
+        }
+
+        monthGroups.get(groupKey).items.push(reservation);
+      });
+
+      const sortedGroups = Array.from(monthGroups.values()).sort((left, right) => {
+        if (bucket === 'upcoming') {
+          return left.monthSortKey.localeCompare(right.monthSortKey);
+        }
+
+        return right.monthSortKey.localeCompare(left.monthSortKey);
+      });
+
+      return sortedGroups.map((group, index) => `
+        <details class="booking-month-group" ${index === 0 ? 'open' : ''}>
+          <summary>
+            <span>${escapeHtml(group.monthLabel)}</span>
+            <span class="booking-count-badge booking-count-badge--month">${group.items.length}</span>
+          </summary>
+          <div class="booking-month-group__list">
+            ${group.items.map((reservation) => renderReservationCard(reservation, bucket)).join('')}
           </div>
         </details>
-      `
-      : '<p class="empty-state">No booking history yet.</p>';
+      `).join('');
+    };
+
+    const renderStatusSection = ({ title, bucket, reservations, emptyMessage, openByDefault = false }) => `
+      <details class="booking-status-folder" ${openByDefault ? 'open' : ''}>
+        <summary>
+          <span>${escapeHtml(title)}</span>
+          <span class="booking-count-badge">${reservations.length}</span>
+        </summary>
+        <div class="booking-status-folder__content">
+          ${reservations.length ? renderMonthGroups(reservations, bucket) : `<p class="empty-state">${escapeHtml(emptyMessage)}</p>`}
+        </div>
+      </details>
+    `;
 
     shell.innerHTML = `
       <div class="booking-requests__section">
-        <h4 class="booking-requests__subheading">Active Requests</h4>
-        ${activeMarkup}
-      </div>
-      <div class="booking-requests__section">
-        <h4 class="booking-requests__subheading">Booking History</h4>
-        ${historyMarkup}
+        ${renderStatusSection({
+          title: 'Upcoming Bookings',
+          bucket: 'upcoming',
+          reservations: groupedReservations.upcoming,
+          emptyMessage: 'No upcoming bookings.',
+          openByDefault: true
+        })}
+        ${renderStatusSection({
+          title: 'Completed Bookings',
+          bucket: 'completed',
+          reservations: groupedReservations.completed,
+          emptyMessage: 'No completed bookings yet.'
+        })}
+        ${renderStatusSection({
+          title: 'Cancelled Bookings',
+          bucket: 'cancelled',
+          reservations: groupedReservations.cancelled,
+          emptyMessage: 'No cancelled bookings.'
+        })}
       </div>
     `;
 
@@ -2240,11 +2399,40 @@ async function loadRenterReservations(currentUser) {
   }
 
   try {
-    const allReservations = await databaseService.readRecords('reservations');
+    const [allReservations, allListings] = await Promise.all([
+      databaseService.readRecords('reservations'),
+      databaseService.readRecords('listings')
+    ]);
+    const listingsById = new Map((allListings || []).map((listing) => [listing.id, listing]));
+    const getReservationListingId = (reservation = {}) => {
+      if (typeof reservation.listing === 'string') {
+        return reservation.listing;
+      }
+
+      return reservation.listingId || reservation.listing?.id || reservation.listing_id || reservation.listingRef || '';
+    };
+    const withListing = (reservation = {}) => {
+      const linkedListing = listingsById.get(getReservationListingId(reservation));
+      if (!linkedListing) {
+        return reservation;
+      }
+
+      const existingListing = reservation.listing && typeof reservation.listing === 'object'
+        ? reservation.listing
+        : {};
+
+      return {
+        ...reservation,
+        listing: {
+          ...existingListing,
+          ...linkedListing
+        }
+      };
+    };
     const renterReservations = (allReservations || []).filter((reservation) => {
       const renterId = reservation.renterId || reservation.renter?.uid || reservation.userId || reservation.user?.uid || reservation.createdByUserId;
       return renterId === currentUser.uid;
-    });
+    }).map(withListing);
 
     const upcoming = renterReservations.filter((reservation) => {
       const summary = buildReservationCancellationSummary(reservation);
@@ -2429,8 +2617,90 @@ async function showProfilePage() {
       email: profileData.email || currentUser.email,
       phone: profileData.phone,
       role: profileData.role || 'Member',
-      createdAt: profileData.createdAt
+      createdAt: profileData.createdAt,
+      profilePhoto: profileData.profilePhoto
     }));
+
+    const profilePhotoInput = document.getElementById('profile-photo-input');
+    const changePhotoButton = document.getElementById('change-profile-photo-btn');
+    const photoStatus = document.getElementById('profile-photo-status');
+
+    const setPhotoStatus = (message, isError = false) => {
+      if (!photoStatus) {
+        return;
+      }
+
+      photoStatus.textContent = message || '';
+      photoStatus.hidden = !message;
+      photoStatus.classList.toggle('form-error', isError);
+      photoStatus.classList.toggle('form-success', !isError && Boolean(message));
+    };
+
+    changePhotoButton?.addEventListener('click', () => {
+      profilePhotoInput?.click();
+    });
+
+    profilePhotoInput?.addEventListener('change', async () => {
+      const selectedFile = profilePhotoInput.files?.[0];
+      if (!selectedFile) {
+        return;
+      }
+
+      if (!selectedFile.type.startsWith('image/')) {
+        setPhotoStatus('Please choose an image file.', true);
+        profilePhotoInput.value = '';
+        return;
+      }
+
+      if (selectedFile.size > 8 * 1024 * 1024) {
+        setPhotoStatus('Please choose an image smaller than 8 MB.', true);
+        profilePhotoInput.value = '';
+        return;
+      }
+
+      setPhotoStatus('Optimizing and uploading profile photo...');
+
+      try {
+        const photoDataUrl = await readOptimizedProfilePhotoDataUrl(selectedFile);
+        const updatePayload = {
+          profilePhoto: photoDataUrl,
+          updatedAt: new Date().toISOString()
+        };
+
+        try {
+          await databaseService.updateRecord('users', currentUser.uid, updatePayload);
+        } catch (updateError) {
+          // If profile doc does not exist yet, create it and include the uploaded photo.
+          await databaseService.createUserProfile(currentUser.uid, {
+            email: currentUser.email || '',
+            createdAt: new Date().toISOString(),
+            ...updatePayload
+          });
+        }
+
+        renderProfileShell({
+          ...profileData,
+          profilePhoto: photoDataUrl
+        });
+
+        await loadMyListings(currentUser);
+        await loadRenterReservations(currentUser);
+        await loadLenderBookingRequests(currentUser);
+
+        const refreshedStatus = document.getElementById('profile-photo-status');
+        if (refreshedStatus) {
+          refreshedStatus.textContent = 'Profile photo updated.';
+          refreshedStatus.hidden = false;
+          refreshedStatus.classList.remove('form-error');
+          refreshedStatus.classList.add('form-success');
+        }
+      } catch (error) {
+        console.error('Unable to update profile photo:', error);
+        setPhotoStatus('Unable to update profile photo right now. Please try a different image.', true);
+      } finally {
+        profilePhotoInput.value = '';
+      }
+    });
 
     document.getElementById('go-update-profile-btn')?.addEventListener('click', () => {
       window.location.hash = 'profile-update';
@@ -2453,7 +2723,8 @@ async function showProfilePage() {
       email: profile?.email || currentUser.email,
       phone: profile?.phone,
       role: profile?.role,
-      createdAt: profile?.createdAt
+      createdAt: profile?.createdAt,
+      profilePhoto: profile?.profilePhoto
     });
 
     await loadMyListings(currentUser);

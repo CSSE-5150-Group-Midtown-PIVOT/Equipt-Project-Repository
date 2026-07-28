@@ -206,7 +206,15 @@ main {
   line-height: 1.6;
 }
 
+.catalog-page {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 1rem 0 2rem;
+}
+
 .catalog-card {
+  width: min(920px, 100%);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -797,10 +805,26 @@ main {
 }
 
 .booking-request-card {
-  padding: 0.9rem;
+  padding: 1rem;
   border: 1px solid #dbeafe;
   border-radius: 12px;
   background: #f8fbff;
+  box-shadow: 0 8px 18px rgba(15, 42, 74, 0.05);
+}
+
+.booking-request-card h4 {
+  margin: 0;
+  color: #0f2a4a;
+  line-height: 1.35;
+}
+
+.booking-request-card p {
+  margin: 0;
+  color: #1e293b;
+}
+
+.booking-request-card strong {
+  color: #0f2a4a;
 }
 
 .booking-request-card__body {
@@ -810,16 +834,94 @@ main {
   align-items: start;
 }
 
+.booking-request-card__details {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
 .booking-request-card__actions {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
   flex-wrap: wrap;
+  align-items: flex-end;
+  border-left: 1px solid #dbeafe;
+  padding-left: 0.9rem;
 }
 
 .booking-requests__section {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.booking-status-folder {
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 0.7rem 0.8rem;
+}
+
+.booking-status-folder > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-weight: 700;
+  color: #0f2a4a;
+}
+
+.booking-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  background: #0f2a4a;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.booking-count-badge--month {
+  min-width: 1.45rem;
+  height: 1.45rem;
+  font-size: 0.7rem;
+  background: #dbeafe;
+  color: #0f2a4a;
+}
+
+.booking-status-folder__content {
+  margin-top: 0.65rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.booking-month-group {
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0.55rem 0.65rem;
+}
+
+.booking-month-group > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: #0f2a4a;
+  font-weight: 600;
+}
+
+.booking-month-group__list {
+  margin-top: 0.55rem;
+  display: grid;
+  gap: 0.55rem;
 }
 
 .booking-requests__subheading {
@@ -851,6 +953,35 @@ main {
 .booking-request-card--history {
   background: #f8fafc;
   border-color: #e2e8f0;
+}
+
+.booking-request-card--cancelled {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.booking-request-card--cancelled h4,
+.booking-request-card--cancelled p,
+.booking-request-card--cancelled strong {
+  color: #475569;
+}
+
+@media (max-width: 760px) {
+  .booking-request-card__body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .booking-request-card__actions {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    border-left: none;
+    border-top: 1px solid #dbeafe;
+    padding-left: 0;
+    padding-top: 0.75rem;
+    margin-top: 0.2rem;
+  }
 }
 
 .catalog-payment-panel {
@@ -1250,6 +1381,66 @@ button.secondary {
 
 .profile-form-actions--top {
   margin-bottom: 0.75rem;
+}
+
+.profile-card-layout {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.profile-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-photo-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.profile-photo-bubble {
+  width: 120px;
+  height: 120px;
+  border-radius: 999px;
+  border: 2px solid #dbeafe;
+  background: linear-gradient(145deg, #e2ecff, #f8fbff);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0f2a4a;
+  font-size: 2rem;
+  font-weight: 700;
+  box-shadow: 0 10px 22px rgba(15, 42, 74, 0.12);
+}
+
+.profile-photo-bubble img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-photo-status {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  text-align: center;
+  max-width: 140px;
+}
+
+@media (max-width: 760px) {
+  .profile-card-layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .profile-photo-panel {
+    align-items: flex-start;
+  }
 }
 
 .my-listings-shell,
