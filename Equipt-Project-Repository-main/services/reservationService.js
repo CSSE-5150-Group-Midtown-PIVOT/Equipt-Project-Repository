@@ -50,8 +50,8 @@ export function getReservationCancellationState(reservation = {}) {
   const hasStarted = Boolean(startDate && now >= startDate);
   const hasEnded = Boolean(endDate && now >= endDate);
   const deadline = startDate ? calculateCancellationDeadline(startDate) : null;
-  const isWithinDeadlineWindow = Boolean(startDate && deadline && now < deadline && now < startDate);
-  const eligible = !isCancelled && !hasStarted && !hasEnded && isWithinDeadlineWindow;
+  const isWithinCancellationWindow = Boolean(startDate && deadline && now >= deadline && now < startDate);
+  const eligible = !isCancelled && !hasStarted && !hasEnded && !isWithinCancellationWindow;
 
   return {
     eligible,
@@ -70,6 +70,10 @@ export function getReservationCancellationState(reservation = {}) {
 export function getRefundPolicy(reservation = {}) {
   const state = getReservationCancellationState(reservation);
   const cancelledBy = String(reservation.cancelledBy || reservation.cancellationActor || 'renter').toLowerCase();
+  const normalizedStatus = String(reservation.status || reservation.reservationStatus || '').trim().toLowerCase();
+  const cancellationAt = parseReservationDate(
+    reservation.cancelledAt || reservation.cancellationRequestedAt || reservation.cancellationDate || reservation.updatedAt
+  );
 
   if (cancelledBy === 'lender') {
     return {
@@ -80,12 +84,33 @@ export function getRefundPolicy(reservation = {}) {
     };
   }
 
+  if (normalizedStatus === 'cancelled' || normalizedStatus === 'canceled') {
+    const deadline = state.deadline;
+    const cancelledBeforeDeadline = Boolean(cancellationAt && deadline && cancellationAt <= deadline);
+
+    if (cancelledBeforeDeadline) {
+      return {
+        canAutoRefund: true,
+        label: 'Full refund',
+        amount: Number(reservation.rentalAmount || reservation.rentalPrice || reservation.amount || 0),
+        summary: 'You cancelled more than 24 hours before the reservation start, so you are eligible for a full refund.'
+      };
+    }
+
+    return {
+      canAutoRefund: false,
+      label: 'No automatic refund',
+      amount: 0,
+      summary: 'You cancelled within 24 hours of the reservation start, so you are not eligible for a refund.'
+    };
+  }
+
   if (state.eligible) {
     return {
       canAutoRefund: true,
       label: 'Full refund',
       amount: Number(reservation.rentalAmount || reservation.rentalPrice || reservation.amount || 0),
-      summary: 'You cancelled at least 24 hours before the reservation start, so a full refund will be issued.'
+      summary: 'If you cancel at least 24 hours before the reservation start, you will receive a full refund.'
     };
   }
 

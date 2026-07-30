@@ -994,7 +994,11 @@ async function loadLenderBookingRequests(currentUser) {
         }
 
         const reason = window.prompt('Optional reason for cancellation:', '');
-        await updateBookingState(reservation, 'Cancelled', reason || '');
+        await updateBookingState(reservation, 'Cancelled', reason || '', {
+          cancelledBy: 'lender',
+          cancellationBy: currentUser.uid,
+          cancellationReason: reason || ''
+        });
         await loadLenderBookingRequests(currentUser);
         await loadMyListings(currentUser);
         await loadCatalogListings();
@@ -1006,7 +1010,7 @@ async function loadLenderBookingRequests(currentUser) {
   }
 }
 
-async function updateBookingState(reservation = {}, nextStatus = 'Cancelled', reason = '') {
+async function updateBookingState(reservation = {}, nextStatus = 'Cancelled', reason = '', metadata = {}) {
   const listingId = reservation.listingId || reservation.listing?.id || reservation.listing_id || '';
   if (!listingId) {
     return;
@@ -1018,29 +1022,42 @@ async function updateBookingState(reservation = {}, nextStatus = 'Cancelled', re
   ]);
 
   const listing = (allListings || []).find((entry) => entry.id === listingId);
-  const reservationDateKey = getDateKey(reservation.startDate || reservation.start || reservation.bookedDate || reservation.date || reservation.reservedDates || reservation.bookedDates || reservation.dates || reservation.bookedAt || '');
+  const reservationDateKeySet = new Set(getReservationDateRangeKeys(reservation));
   const otherActiveReservations = (allReservations || []).filter((entry) => {
     const entryListingId = entry.listingId || entry.listing?.id || entry.listing_id || '';
-    const entryDateKey = getDateKey(entry.startDate || entry.start || entry.bookedDate || entry.date || entry.reservedDates || entry.bookedDates || entry.dates || entry.bookedAt || '');
-    return entryListingId === listingId && entry.id !== reservation.id && isReservationActive(entry) && (!reservationDateKey || !entryDateKey || entryDateKey !== reservationDateKey);
+    return entryListingId === listingId && entry.id !== reservation.id && isReservationActive(entry);
   });
 
   const existingReservedDates = Array.isArray(listing?.reservedDates)
     ? listing.reservedDates
     : [listing?.reservedDates || listing?.reservedDate || listing?.bookedDates].filter(Boolean);
+  const otherActiveReservationDateKeys = otherActiveReservations.flatMap((entry) => getReservationDateRangeKeys(entry));
   const nextReservedDates = Array.from(new Set([
-    ...existingReservedDates.filter((value) => getDateKey(value) !== reservationDateKey),
-    ...otherActiveReservations.flatMap((entry) => getDateKey(entry.startDate || entry.start || entry.bookedDate || entry.date || entry.reservedDates || entry.bookedDates || entry.dates || entry.bookedAt || ''))
+    ...existingReservedDates.filter((value) => {
+      const dateKey = getDateKey(value);
+      return dateKey && !reservationDateKeySet.has(dateKey);
+    }),
+    ...otherActiveReservationDateKeys
   ].filter(Boolean)));
 
   const hasRemainingReservations = nextReservedDates.length > 0;
 
-  await databaseService.updateRecord('reservations', reservation.id, {
+  const timestamp = new Date().toISOString();
+  const normalizedNextStatus = String(nextStatus || '').trim().toLowerCase();
+  const reservationPayload = {
     status: nextStatus,
     reservationStatus: nextStatus,
     reason: reason || reservation.reason || '',
-    updatedAt: new Date().toISOString()
-  });
+    updatedAt: timestamp,
+    ...metadata
+  };
+
+  if (normalizedNextStatus === 'cancelled' || normalizedNextStatus === 'canceled') {
+    reservationPayload.cancelledAt = metadata.cancelledAt || timestamp;
+    reservationPayload.cancellationRequestedAt = metadata.cancellationRequestedAt || reservationPayload.cancelledAt;
+  }
+
+  await databaseService.updateRecord('reservations', reservation.id, reservationPayload);
 
   if (listing) {
     await databaseService.updateRecord('listings', listing.id, {
@@ -1049,7 +1066,7 @@ async function updateBookingState(reservation = {}, nextStatus = 'Cancelled', re
       reservedDates: nextReservedDates,
       bookingId: hasRemainingReservations ? (listing.bookingId || '') : '',
       reservationId: hasRemainingReservations ? (listing.reservationId || '') : '',
-      updatedAt: new Date().toISOString()
+      updatedAt: timestamp
     });
   }
 }
@@ -1511,6 +1528,7 @@ function buildCalendarDays(listing = {}, reservationRecords = [], monthDate = ne
   const month = monthDate.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfWeek = new Date(year, month, 1).getDay();
+  const todayKey = getDateKey(new Date());
   const reservedSet = new Set();
 
   const addDateKey = (d) => {
@@ -1552,7 +1570,8 @@ function buildCalendarDays(listing = {}, reservationRecords = [], monthDate = ne
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const isReserved = reservedSet.has(dateKey);
-    monthDays.push({ day, reserved: isReserved, dateKey });
+    const isPast = Boolean(todayKey && dateKey < todayKey);
+    monthDays.push({ day, reserved: isReserved, dateKey, past: isPast });
   }
 
   return monthDays;
@@ -1614,6 +1633,56 @@ function getReservedDateKeys(listing = {}, reservationRecords = []) {
   });
 
   return Array.from(reservedDates);
+}
+
+function getReservationDateRangeKeys(reservation = {}) {
+  const selectedDateRangeKeys = Array.isArray(reservation.selectedDateRange)
+    ? reservation.selectedDateRange.map((value) => getDateKey(value)).filter(Boolean)
+    : [];
+
+  if (selectedDateRangeKeys.length > 0) {
+    return Array.from(new Set(selectedDateRangeKeys));
+  }
+
+  const startDateKey = getDateKey(
+    reservation.startDate ||
+    reservation.start ||
+    reservation.bookedDate ||
+    reservation.date ||
+    reservation.startAt ||
+    reservation.startDateTime ||
+    reservation.reservationStart ||
+    reservation.pickupAt ||
+    reservation.bookedAt || ''
+  );
+  const endDateKey = getDateKey(
+    reservation.endDate ||
+    reservation.end ||
+    reservation.endAt ||
+    reservation.endDateTime ||
+    reservation.reservationEnd ||
+    reservation.pickupEnd ||
+    startDateKey
+  );
+
+  if (!startDateKey) {
+    return [];
+  }
+
+  if (!endDateKey || endDateKey < startDateKey) {
+    return [startDateKey];
+  }
+
+  const keys = [];
+  const cursor = new Date(`${startDateKey}T00:00:00`);
+  const end = new Date(`${endDateKey}T00:00:00`);
+
+  while (cursor <= end) {
+    keys.push(getDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return keys.filter(Boolean);
 }
 
 function formatBookingDateLabel(dateKey = '') {
@@ -1726,13 +1795,18 @@ async function loadCatalogListings() {
                   }
 
                   const classes = ['catalog-calendar__day', day.reserved ? 'is-reserved' : 'is-available'];
-                  return `<button type="button" class="${classes.join(' ')}" data-date-key="${escapeHtml(day.dateKey)}" data-listing-id="${escapeHtml(listing.id)}">${day.day}</button>`;
+                  if (day.past) {
+                    classes.push('is-past');
+                  }
+                  const disabledAttrs = day.past ? ' disabled aria-disabled="true"' : '';
+                  return `<button type="button" class="${classes.join(' ')}" data-date-key="${escapeHtml(day.dateKey)}" data-listing-id="${escapeHtml(listing.id)}"${disabledAttrs}>${day.day}</button>`;
                 }).join('')}
               </div>
               <div class="catalog-calendar__legend">
                 <span><i class="catalog-calendar__dot catalog-calendar__dot--available"></i> Available</span>
                 <span><i class="catalog-calendar__dot catalog-calendar__dot--reserved"></i> Reserved</span>
               </div>
+              <div class="catalog-calendar__selection-hint">Select a start date, then an end date, or double-click a single day to book one day.</div>
               <div class="catalog-calendar__booking">
                 <div class="catalog-calendar__booking-status" data-role="booking-status">Select a date to check availability.</div>
                 <button type="button" class="catalog-calendar__booking-action" data-listing-id="${escapeHtml(listing.id)}" hidden>Book</button>
@@ -1740,7 +1814,7 @@ async function loadCatalogListings() {
               <div class="catalog-payment-panel" hidden>
                 <div class="catalog-payment-panel__header">
                   <strong>PIVOT Payment System</strong>
-                  <p>No real charges or data storage. This is a demo checkout.</p>
+                  <p>No real charges or data storage. Enter your name to complete this demo checkout. Other fields are optional.</p>
                 </div>
                 <div class="catalog-payment-panel__fields">
                   <div class="catalog-payment-confirmation" role="status" hidden></div>
@@ -1775,6 +1849,29 @@ async function loadCatalogListings() {
       `;
     }).join('');
 
+    const getDateRangeKeys = (startDateKey = '', endDateKey = '') => {
+      if (!startDateKey) {
+        return [];
+      }
+
+      const normalizedEndDateKey = endDateKey || startDateKey;
+      const start = new Date(`${startDateKey}T00:00:00`);
+      const end = new Date(`${normalizedEndDateKey}T00:00:00`);
+
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+        return [startDateKey];
+      }
+
+      const rangeKeys = [];
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        rangeKeys.push(getDateKey(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      return rangeKeys;
+    };
+
     const syncBookingUiForCalendar = (calendar, listing, reservationsForListing, selectedDateKey = '') => {
       if (!calendar) {
         return;
@@ -1787,7 +1884,13 @@ async function loadCatalogListings() {
         return;
       }
 
-      const normalizedSelectedDate = selectedDateKey || calendar.dataset.selectedDate || '';
+      const selectionStartDate = calendar.dataset.bookingStartDate || '';
+      const selectionEndDate = calendar.dataset.bookingEndDate || '';
+      const selectionReady = calendar.dataset.selectionReady === 'true';
+      const selectionRangeKeys = getDateRangeKeys(selectionStartDate, selectionEndDate);
+      const normalizedSelectedDate = selectedDateKey || selectionEndDate || selectionStartDate || '';
+      const todayKey = getDateKey(new Date());
+      const hasPastDateInSelection = selectionRangeKeys.some((dateKey) => dateKey < todayKey);
       const shouldKeepPaymentPanelOpen = calendar.dataset.paymentConfirmationVisible === 'true';
       if (!shouldKeepPaymentPanelOpen) {
         const paymentInputs = calendar.querySelectorAll('.catalog-payment-panel input');
@@ -1798,12 +1901,26 @@ async function loadCatalogListings() {
       if (paymentPanel && !shouldKeepPaymentPanelOpen) {
         paymentPanel.hidden = true;
       }
-      if (!normalizedSelectedDate) {
+      if (!selectionStartDate && !selectionEndDate) {
         statusEl.textContent = 'Select a date to check availability.';
         statusEl.classList.remove('is-booked');
         buttonEl.hidden = true;
         buttonEl.disabled = true;
+        buttonEl.dataset.startDate = '';
+        buttonEl.dataset.endDate = '';
+        buttonEl.dataset.selectedDate = '';
         calendar.dataset.selectedDate = '';
+        return;
+      }
+
+      if (hasPastDateInSelection) {
+        statusEl.textContent = 'Past dates cannot be booked. Please choose today or a future date.';
+        statusEl.classList.remove('is-booked');
+        buttonEl.hidden = true;
+        buttonEl.disabled = true;
+        buttonEl.dataset.startDate = '';
+        buttonEl.dataset.endDate = '';
+        buttonEl.dataset.selectedDate = '';
         return;
       }
 
@@ -1811,29 +1928,53 @@ async function loadCatalogListings() {
         ? listing.reservedDates
         : [listing.reservedDates || listing.reservedDate || listing.bookedDates].filter(Boolean);
 
+      const selectedDateKeys = selectionRangeKeys.length > 1 ? selectionRangeKeys : [normalizedSelectedDate];
       const isBooked = Boolean(
-        reservationsForListing.find((reservation) => {
-          const reservationDate = getDateKey(reservation.bookedDate || reservation.date || reservation.startDate || reservation.start || reservation.endDate || reservation.end || reservation.reservedDates || reservation.bookedDates || reservation.dates);
-          return reservationDate === normalizedSelectedDate;
-        }) || reservedDateValues.some((value) => getDateKey(value) === normalizedSelectedDate)
+        selectedDateKeys.some((dateKey) => Boolean(
+          reservationsForListing.find((reservation) => {
+            const reservationDate = getDateKey(reservation.bookedDate || reservation.date || reservation.startDate || reservation.start || reservation.endDate || reservation.end || reservation.reservedDates || reservation.bookedDates || reservation.dates);
+            return reservationDate === dateKey;
+          }) || reservedDateValues.some((value) => getDateKey(value) === dateKey)
+        ))
       );
 
-      statusEl.textContent = isBooked
-        ? `Booked for ${formatBookingDateLabel(normalizedSelectedDate)}.`
-        : `Available on ${formatBookingDateLabel(normalizedSelectedDate)}.`;
+      if (selectionReady && selectionRangeKeys.length) {
+        const rangeLabel = selectionRangeKeys.length > 1
+          ? `${formatBookingDateLabel(selectionStartDate)} – ${formatBookingDateLabel(selectionEndDate)}`
+          : formatBookingDateLabel(normalizedSelectedDate);
+        statusEl.textContent = isBooked
+          ? `Booked for ${rangeLabel}.`
+          : `Selected rental dates: ${rangeLabel}.`;
+      } else {
+        statusEl.textContent = 'Choose the ending date or double-click a day to book one day.';
+      }
       statusEl.classList.toggle('is-booked', isBooked);
 
-      buttonEl.hidden = isBooked;
-      buttonEl.disabled = isBooked;
+      buttonEl.hidden = !selectionReady || isBooked;
+      buttonEl.disabled = !selectionReady || isBooked;
+      buttonEl.dataset.startDate = selectionStartDate;
+      buttonEl.dataset.endDate = selectionEndDate || selectionStartDate;
       buttonEl.dataset.selectedDate = normalizedSelectedDate;
       calendar.dataset.selectedDate = normalizedSelectedDate;
     };
 
     const showPaymentPanelForBooking = (button) => {
       const listingId = button?.dataset.listingId;
-      const selectedDateKey = button?.dataset.selectedDate || button?.closest('.catalog-calendar')?.dataset.selectedDate || '';
+      const calendar = button?.closest('.catalog-calendar');
+      const selectedStartDateKey = button?.dataset.startDate || calendar?.dataset.bookingStartDate || button?.dataset.selectedDate || calendar?.dataset.selectedDate || '';
+      const selectedEndDateKey = button?.dataset.endDate || calendar?.dataset.bookingEndDate || selectedStartDateKey;
+      const selectedDateRange = getDateRangeKeys(selectedStartDateKey, selectedEndDateKey);
+      const todayKey = getDateKey(new Date());
 
-      if (!listingId || !selectedDateKey) {
+      if (!listingId || !selectedStartDateKey) {
+        return;
+      }
+
+      if (selectedDateRange.some((dateKey) => dateKey < todayKey)) {
+        const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
+        if (statusEl) {
+          statusEl.textContent = 'Past dates cannot be booked. Please choose today or a future date.';
+        }
         return;
       }
 
@@ -1849,13 +1990,12 @@ async function loadCatalogListings() {
         return;
       }
 
-      const calendar = button.closest('.catalog-calendar');
       const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
       const paymentPanel = calendar?.querySelector('.catalog-payment-panel');
       const bookingButton = calendar?.querySelector('.catalog-calendar__booking-action');
 
       if (statusEl) {
-        statusEl.textContent = 'Enter your payment details to complete this booking.';
+        statusEl.textContent = 'Enter your name to complete this booking. Other fields are optional.';
       }
 
       if (bookingButton) {
@@ -1872,9 +2012,21 @@ async function loadCatalogListings() {
 
     const completeBookingWithPayment = async (button) => {
       const listingId = button?.dataset.listingId;
-      const selectedDateKey = button?.dataset.selectedDate || button?.closest('.catalog-calendar')?.dataset.selectedDate || '';
+      const calendar = button?.closest('.catalog-calendar');
+      const selectedStartDateKey = button?.dataset.startDate || calendar?.dataset.bookingStartDate || button?.dataset.selectedDate || calendar?.dataset.selectedDate || '';
+      const selectedEndDateKey = button?.dataset.endDate || calendar?.dataset.bookingEndDate || selectedStartDateKey;
+      const bookingDateRange = getDateRangeKeys(selectedStartDateKey, selectedEndDateKey);
+      const todayKey = getDateKey(new Date());
 
-      if (!listingId || !selectedDateKey) {
+      if (!listingId || !selectedStartDateKey) {
+        return;
+      }
+
+      if (bookingDateRange.some((dateKey) => dateKey < todayKey)) {
+        const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
+        if (statusEl) {
+          statusEl.textContent = 'Past dates cannot be booked. Please choose today or a future date.';
+        }
         return;
       }
 
@@ -1890,11 +2042,19 @@ async function loadCatalogListings() {
         return;
       }
 
-      const calendar = button.closest('.catalog-calendar');
       const statusEl = calendar?.querySelector('.catalog-calendar__booking-status');
       const paymentPanel = calendar?.querySelector('.catalog-payment-panel');
       const paymentButton = calendar?.querySelector('.catalog-payment-action');
       const confirmationBanner = document.getElementById('booking-confirmation-banner');
+      const payerNameInput = calendar?.querySelector('.catalog-payment-field input[autocomplete="cc-name"]');
+      const payerName = String(payerNameInput?.value || '').trim();
+
+      if (!payerName) {
+        if (statusEl) {
+          statusEl.textContent = 'Please enter your name to complete booking.';
+        }
+        return;
+      }
 
       if (statusEl) {
         statusEl.textContent = 'Processing your demo payment…';
@@ -1908,23 +2068,28 @@ async function loadCatalogListings() {
       try {
         const allReservations = window.__catalogState.allReservations || [];
         const existingReservation = allReservations.find((reservation) => {
-          const reservationDate = getDateKey(reservation.bookedDate || reservation.date || reservation.startDate || reservation.start || reservation.endDate || reservation.end || reservation.reservedDates || reservation.bookedDates || reservation.dates);
-          return (reservation.listingId || reservation.listing || reservation.listingRef || reservation.listing_id) === listingId && reservationDate === selectedDateKey;
+          const reservationStartDate = reservation.startDate || reservation.bookedDate || reservation.date || reservation.start || reservation.startAt || reservation.startDateTime || '';
+          const reservationEndDate = reservation.endDate || reservation.end || reservation.startDate || reservation.bookedDate || reservation.date || reservation.start || reservation.startAt || reservation.startDateTime || '';
+          return (reservation.listingId || reservation.listing || reservation.listingRef || reservation.listing_id) === listingId && reservationStartDate === selectedStartDateKey && reservationEndDate === selectedEndDateKey;
         });
 
         const nextReservedDates = Array.from(new Set([
           ...(Array.isArray(listing.reservedDates) ? listing.reservedDates : [listing.reservedDates || listing.reservedDate || listing.bookedDates].filter(Boolean)),
-          selectedDateKey
+          ...bookingDateRange
         ]));
 
         const reservationPayload = createReservationSnapshot(listing, {
           listingId,
           ownerId: listing.ownerId || currentUser.uid,
           renterId: currentUser.uid,
+          renterName: payerName,
           renterEmail: currentUser.email || '',
           toolName: listing.toolName || '',
-          bookedDate: selectedDateKey,
-          date: selectedDateKey,
+          bookedDate: selectedStartDateKey,
+          date: selectedStartDateKey,
+          startDate: selectedStartDateKey,
+          endDate: selectedEndDateKey,
+          selectedDateRange: bookingDateRange,
           bookedRateUsd: getEffectiveDailyRate(listing),
           status: 'Confirmed',
           reservationStatus: 'confirmed',
@@ -1973,8 +2138,9 @@ async function loadCatalogListings() {
 
         const nextReservations = [
           ...(window.__catalogState.allReservations || []).filter((reservation) => {
-            const reservationDate = getDateKey(reservation.bookedDate || reservation.date || reservation.startDate || reservation.start || reservation.endDate || reservation.end || reservation.reservedDates || reservation.bookedDates || reservation.dates);
-            return !((reservation.listingId || reservation.listing || reservation.listingRef || reservation.listing_id) === listingId && reservationDate === selectedDateKey && reservation.id !== reservationRecord.id);
+            const reservationStartDate = reservation.startDate || reservation.bookedDate || reservation.date || reservation.start || reservation.startAt || reservation.startDateTime || '';
+            const reservationEndDate = reservation.endDate || reservation.end || reservation.startDate || reservation.bookedDate || reservation.date || reservation.start || reservation.startAt || reservation.startDateTime || '';
+            return !((reservation.listingId || reservation.listing || reservation.listingRef || reservation.listing_id) === listingId && reservationStartDate === selectedStartDateKey && reservationEndDate === selectedEndDateKey && reservation.id !== reservationRecord.id);
           }),
           { id: reservationRecord.id, ...reservationPayload }
         ];
@@ -2031,8 +2197,11 @@ async function loadCatalogListings() {
     results.querySelectorAll('.catalog-result-card').forEach((card) => {
       const listingId = card.dataset.listingId;
       card.addEventListener('click', (e) => {
-        // ignore clicks on calendar controls and booking actions
-        if (e.target.closest('.catalog-calendar__nav, .catalog-calendar__day, .catalog-calendar__booking-action')) return;
+        const clickedInsideCalendar = e.target.closest('.catalog-calendar');
+        if (clickedInsideCalendar) {
+          return;
+        }
+
         const isExpanded = card.getAttribute('aria-expanded') === 'true';
         card.setAttribute('aria-expanded', String(!isExpanded));
         const calendar = card.querySelector('.catalog-calendar');
@@ -2081,6 +2250,10 @@ async function loadCatalogListings() {
       if (activeSelectedDate !== selectedDateKey) {
         calendar.dataset.selectedDate = activeSelectedDate;
       }
+      const selectionStartDate = calendar.dataset.bookingStartDate || '';
+      const selectionEndDate = calendar.dataset.bookingEndDate || '';
+      const selectionReady = calendar.dataset.selectionReady === 'true';
+      const selectionRangeKeys = getDateRangeKeys(selectionStartDate, selectionEndDate);
 
       if (captionEl) captionEl.textContent = getCalendarCaption(target);
       if (countsEl) countsEl.textContent = `${monthDays.filter((d) => d.day && d.reserved).length} reserved • ${monthDays.filter((d) => d.day && !d.reserved).length} available`;
@@ -2091,11 +2264,24 @@ async function loadCatalogListings() {
           }
 
           const classes = ['catalog-calendar__day', day.reserved ? 'is-reserved' : 'is-available'];
-          if (calendar.dataset.selectedDate && day.dateKey === calendar.dataset.selectedDate) {
+          if (day.past) {
+            classes.push('is-past');
+          }
+          if (selectionStartDate && day.dateKey === selectionStartDate) {
+            classes.push('is-range-start');
+          }
+          if (selectionEndDate && day.dateKey === selectionEndDate) {
+            classes.push('is-range-end');
+          }
+          if (selectionRangeKeys.includes(day.dateKey)) {
+            classes.push('is-in-range');
+          }
+          if (calendar.dataset.selectedDate && day.dateKey === calendar.dataset.selectedDate && !selectionReady) {
             classes.push('is-selected');
           }
 
-          return `<button type="button" class="${classes.join(' ')}" data-date-key="${escapeHtml(day.dateKey)}" data-listing-id="${escapeHtml(listing.id)}">${day.day}</button>`;
+          const disabledAttrs = day.past ? ' disabled aria-disabled="true"' : '';
+          return `<button type="button" class="${classes.join(' ')}" data-date-key="${escapeHtml(day.dateKey)}" data-listing-id="${escapeHtml(listing.id)}"${disabledAttrs}>${day.day}</button>`;
         }).join('');
       }
       syncBookingUiForCalendar(calendar, listing, reservationsForListing, calendar.dataset.selectedDate || '');
@@ -2141,12 +2327,34 @@ async function loadCatalogListings() {
         }
 
         const dayButton = event.target.closest('.catalog-calendar__day');
-        if (!dayButton || dayButton.classList.contains('is-empty') || !dayButton.dataset.dateKey) {
+        if (!dayButton || dayButton.classList.contains('is-empty') || dayButton.classList.contains('is-past') || !dayButton.dataset.dateKey) {
           return;
         }
 
         event.stopPropagation();
-        calendar.dataset.selectedDate = dayButton.dataset.dateKey;
+        const clickedDateKey = dayButton.dataset.dateKey;
+        const currentStartDate = calendar.dataset.bookingStartDate || '';
+        const currentEndDate = calendar.dataset.bookingEndDate || '';
+
+        if (event.detail === 2) {
+          calendar.dataset.bookingStartDate = clickedDateKey;
+          calendar.dataset.bookingEndDate = clickedDateKey;
+          calendar.dataset.selectionReady = 'true';
+        } else if (!currentStartDate || currentEndDate) {
+          calendar.dataset.bookingStartDate = clickedDateKey;
+          calendar.dataset.bookingEndDate = '';
+          calendar.dataset.selectionReady = 'false';
+        } else {
+          if (clickedDateKey < currentStartDate) {
+            calendar.dataset.bookingEndDate = currentStartDate;
+            calendar.dataset.bookingStartDate = clickedDateKey;
+          } else {
+            calendar.dataset.bookingEndDate = clickedDateKey;
+          }
+          calendar.dataset.selectionReady = 'true';
+        }
+
+        calendar.dataset.selectedDate = clickedDateKey;
         renderCalendarForListing(dayButton.dataset.listingId, Number(calendar.dataset.monthOffset || '0'));
       });
     });
@@ -2453,6 +2661,13 @@ async function loadRenterReservations(currentUser) {
         const photo = getReservationPhoto(reservation);
         const toolName = getReservationToolName(reservation);
         const status = String(reservation.status || 'Confirmed').trim();
+        const normalizedStatus = status.toLowerCase();
+        const showRefundLine = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+        const reservationDates = reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
+        const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
+        const displayDates = reservationDates
+          ? `${formatReservationDateTime(reservationDates)}${reservationEndDate && reservationEndDate !== reservationDates ? ` – ${formatReservationDateTime(reservationEndDate)}` : ''}`
+          : 'Not provided';
         return `
           <article class="reservation-card" data-reservation-id="${escapeHtml(reservation.id)}">
             <div class="reservation-card__media">
@@ -2460,10 +2675,10 @@ async function loadRenterReservations(currentUser) {
             </div>
             <div class="reservation-card__details">
               <h4>${escapeHtml(toolName)}</h4>
-              <p><strong>Dates:</strong> ${escapeHtml(formatReservationDateTime(reservation.startAt || reservation.startDateTime || reservation.startDate || reservation.start))} – ${escapeHtml(formatReservationDateTime(reservation.endAt || reservation.endDateTime || reservation.endDate || reservation.end))}</p>
+              <p><strong>Dates:</strong> ${escapeHtml(displayDates)}</p>
               <p><strong>Status:</strong> ${escapeHtml(status)}</p>
               <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
-              <p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>
+              ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
               ${summary.eligible
           ? `<button type="button" class="secondary reservation-cancel-btn" data-reservation-id="${escapeHtml(reservation.id)}">Cancel Reservation</button>`
           : `<p class="reservation-message">${escapeHtml(summary.message)}</p>`}
@@ -2480,6 +2695,13 @@ async function loadRenterReservations(currentUser) {
         const photo = getReservationPhoto(reservation);
         const toolName = getReservationToolName(reservation);
         const status = String(reservation.status || 'Completed').trim();
+        const normalizedStatus = status.toLowerCase();
+        const showRefundLine = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+        const reservationDates = reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
+        const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
+        const displayDates = reservationDates
+          ? `${formatReservationDateTime(reservationDates)}${reservationEndDate && reservationEndDate !== reservationDates ? ` – ${formatReservationDateTime(reservationEndDate)}` : ''}`
+          : 'Not provided';
         return `
           <article class="reservation-card reservation-card--history">
             <div class="reservation-card__media">
@@ -2487,8 +2709,9 @@ async function loadRenterReservations(currentUser) {
             </div>
             <div class="reservation-card__details">
               <h4>${escapeHtml(toolName)}</h4>
+              <p><strong>Dates:</strong> ${escapeHtml(displayDates)}</p>
               <p><strong>Status:</strong> ${escapeHtml(status)}</p>
-              <p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>
+              ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
               <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
             </div>
           </article>
@@ -2509,6 +2732,13 @@ async function loadRenterReservations(currentUser) {
         const refundPolicy = getRefundPolicy(reservation);
         const photo = getReservationPhoto(reservation);
         const toolName = getReservationToolName(reservation);
+        const status = String(reservation.status || '').trim().toLowerCase();
+        const showRefundLine = status === 'cancelled' || status === 'canceled';
+        const reservationDates = reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
+        const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
+        const displayDates = reservationDates
+          ? `${formatReservationDateTime(reservationDates)}${reservationEndDate && reservationEndDate !== reservationDates ? ` – ${formatReservationDateTime(reservationEndDate)}` : ''}`
+          : 'Not provided';
         const modalMarkup = `
           <div class="reservation-modal-backdrop" role="dialog" aria-modal="true" aria-label="Cancel reservation confirmation">
             <div class="reservation-modal">
@@ -2519,10 +2749,9 @@ async function loadRenterReservations(currentUser) {
                 </div>
                 <div class="reservation-modal__content">
                   <p><strong>${escapeHtml(toolName)}</strong></p>
-                  <p><strong>Start:</strong> ${escapeHtml(formatReservationDateTime(reservation.startAt || reservation.startDateTime || reservation.startDate || reservation.start))}</p>
-                  <p><strong>End:</strong> ${escapeHtml(formatReservationDateTime(reservation.endAt || reservation.endDateTime || reservation.endDate || reservation.end))}</p>
+                  <p><strong>Selected rental dates:</strong> ${escapeHtml(displayDates)}</p>
                   <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
-                  <p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>
+                  ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
                   <label class="reservation-modal__field" for="cancellation-reason">
                     <span>Reason</span>
                     <select id="cancellation-reason">
@@ -2536,6 +2765,7 @@ async function loadRenterReservations(currentUser) {
               </div>
               <div class="reservation-modal__actions">
                 <button type="button" class="secondary" data-action="keep-reservation">Keep Reservation</button>
+                <button type="button" class="secondary" data-action="dismiss-cancel-modal">Close</button>
                 <button type="button" class="primary reservation-modal__confirm" data-action="confirm-cancellation">Confirm Cancellation</button>
               </div>
             </div>
@@ -2544,38 +2774,51 @@ async function loadRenterReservations(currentUser) {
 
         const modalRoot = document.createElement('div');
         modalRoot.innerHTML = modalMarkup;
-        document.body.appendChild(modalRoot.firstElementChild);
+        const modalElement = modalRoot.firstElementChild;
+        if (modalElement) {
+          document.body.appendChild(modalElement);
+        }
 
-        modalRoot.firstElementChild?.querySelector('[data-action="keep-reservation"]')?.addEventListener('click', () => {
-          modalRoot.firstElementChild.remove();
+        const closeModal = () => {
+          modalElement?.remove();
+          document.removeEventListener('keydown', handleEscapeKey);
+        };
+
+        const handleEscapeKey = (event) => {
+          if (event.key === 'Escape') {
+            closeModal();
+          }
+        };
+
+        document.addEventListener('keydown', handleEscapeKey);
+        modalElement?.addEventListener('click', (event) => {
+          if (event.target === modalElement) {
+            closeModal();
+          }
         });
 
-        modalRoot.firstElementChild?.querySelector('[data-action="confirm-cancellation"]')?.addEventListener('click', async () => {
+        modalElement?.querySelector('[data-action="keep-reservation"]')?.addEventListener('click', () => {
+          closeModal();
+        });
+        modalElement?.querySelector('[data-action="dismiss-cancel-modal"]')?.addEventListener('click', () => {
+          closeModal();
+        });
+
+        modalElement?.querySelector('[data-action="confirm-cancellation"]')?.addEventListener('click', async () => {
           const reason = modalRoot.firstElementChild?.querySelector('#cancellation-reason')?.value || 'Other';
-          const cancellationPayload = {
-            status: 'Cancelled',
-            reservationStatus: 'Cancelled',
-            cancelledAt: new Date().toISOString(),
+          const timestamp = new Date().toISOString();
+          await updateBookingState(reservation, 'Cancelled', reason, {
             cancellationReason: reason,
-            cancellationRequestedAt: new Date().toISOString(),
             cancellationBy: currentUser.uid,
             cancelledBy: 'renter',
-            lenderNotifiedAt: new Date().toISOString(),
-            lenderNotified: true
-          };
-
-          await databaseService.updateRecord('reservations', reservation.id, cancellationPayload);
-
-          if (reservation.listingId) {
-            await databaseService.updateRecord('listings', reservation.listingId, {
-              availability: 'Available now',
-              reservationStatus: 'Cancelled',
-              updatedAt: new Date().toISOString()
-            });
-          }
-          modalRoot.firstElementChild.remove();
+            lenderNotifiedAt: timestamp,
+            lenderNotified: true,
+            cancelledAt: timestamp,
+            cancellationRequestedAt: timestamp
+          });
+          closeModal();
           if (statusEl) {
-            statusEl.textContent = 'Your reservation has been cancelled. Your refund is being processed.';
+            statusEl.textContent = 'Your reservation has been cancelled.';
             statusEl.hidden = false;
             statusEl.classList.remove('form-error');
             statusEl.classList.add('form-success');

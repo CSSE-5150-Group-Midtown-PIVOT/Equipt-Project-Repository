@@ -680,6 +680,7 @@ main {
 }
 
 .catalog-calendar__day {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -711,6 +712,43 @@ main {
 .catalog-calendar__day.is-selected {
   outline: 2px solid #2f6fed;
   outline-offset: 1px;
+}
+
+.catalog-calendar__day.is-in-range {
+  background: #bfdbfe;
+  color: #1e3a8a;
+  border-radius: 0;
+}
+
+.catalog-calendar__day.is-range-start,
+.catalog-calendar__day.is-range-end {
+  background: #2563eb;
+  color: #ffffff;
+  border-radius: 8px;
+}
+
+.catalog-calendar__day.is-range-start.is-range-end {
+  border-radius: 8px;
+}
+
+.catalog-calendar__day.is-range-start:not(.is-range-end) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.catalog-calendar__day.is-range-end:not(.is-range-start) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.catalog-calendar__day.is-past {
+  background: #e5e7eb;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.catalog-calendar__day.is-past:disabled {
+  opacity: 1;
 }
 
 .catalog-calendar__legend {
