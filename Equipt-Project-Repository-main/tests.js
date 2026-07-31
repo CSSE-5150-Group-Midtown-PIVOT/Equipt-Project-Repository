@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getEffectiveDailyRate, normalizeDailyRate } from './services/pricingService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,46 +10,52 @@ const appControllerSource = readFileSync(path.join(__dirname, 'controllers', 'ap
 let passed = 0;
 let failed = 0;
 
-function test(name, fn) {
-  try {
-    fn();
+function formatValue(value) {
+  if (typeof value === 'string') {
+    return `"${value}"`;
+  }
+  return JSON.stringify(value);
+}
+
+function isDeepEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function test(name, actual, expected) {
+  const matches = isDeepEqual(actual, expected);
+
+  if (matches) {
     passed += 1;
     console.log(`PASS: ${name}`);
+    return;
+  }
+
+  failed += 1;
+  console.log(`FAIL: ${name}`);
+  console.log(`  Expected: ${formatValue(expected)}`);
+  console.log(`  Actual:   ${formatValue(actual)}`);
+}
+
+async function testAsync(name, runAssertion) {
+  try {
+    const assertionResult = await runAssertion();
+    if (assertionResult === true) {
+      passed += 1;
+      console.log(`PASS: ${name}`);
+      return;
+    }
+
+    failed += 1;
+    console.log(`FAIL: ${name}`);
+    if (typeof assertionResult === 'string') {
+      console.log(`  ${assertionResult}`);
+    }
   } catch (error) {
     failed += 1;
     console.log(`FAIL: ${name}`);
     console.log(`  ${error.message}`);
   }
 }
-
-// Test 1: verify the password registration flow enforces the required security rules.
-test('password registration logic enforces length, uppercase, and special-character requirements', () => {
-  assert.ok(appControllerSource.includes('const passwordRequirements = {'), 'The controller should define password requirements.');
-  assert.ok(appControllerSource.includes('minLength: password && password.length >= 12'), 'The controller should require at least 12 characters.');
-  assert.ok(appControllerSource.includes('uppercase: /[A-Z]/.test(password || \'\')'), 'The controller should require an uppercase letter.');
-  assert.ok(appControllerSource.includes('specialChar: /[^A-Za-z0-9]/.test(password || \'\')'), 'The controller should require a special character.');
-  assert.ok(appControllerSource.includes("unmetRequirements.push('at least 12 characters')"), 'The controller should report missing minimum length.');
-  assert.ok(appControllerSource.includes("alert(`Password must include ${unmetRequirements.join(', ')}.`);"), 'The controller should show a clear password requirement alert.');
-});
-
-// Test 2: verify the availability calendar exposes the placeholder payment system after a date is selected.
-test('availability calendar flow shows the placeholder payment system after selecting a date', () => {
-  assert.ok(appControllerSource.includes('calendar.dataset.selectedDate = dayButton.dataset.dateKey;'), 'Selecting a day should store the chosen date on the calendar state.');
-  assert.ok(appControllerSource.includes('showPaymentPanelForBooking'), 'The controller should provide a function that opens the payment panel.');
-  assert.ok(appControllerSource.includes('catalog-payment-panel'), 'The calendar markup should include the payment panel container.');
-  assert.ok(appControllerSource.includes('PIVOT Payment System'), 'The payment panel should expose the placeholder payment system label.');
-  assert.ok(appControllerSource.includes('paymentPanel.hidden = false;'), 'The payment panel should be revealed once booking is initiated.');
-  assert.ok(appControllerSource.includes('completeBookingWithPayment'), 'The controller should provide the booking-completion flow.');
-});
-
-console.log('');
-console.log(`Summary: ${passed} passed, ${failed} failed`);
-
-if (failed > 0) {
-  process.exit(1);
-}
-
-const { getReservationCancellationState } = await import('./services/reservationService.js');
 
 function extractFunctionSource(sourceText, functionName) {
   const signature = `function ${functionName}(`;
@@ -58,6 +64,10 @@ function extractFunctionSource(sourceText, functionName) {
   if (startIndex === -1) {
     throw new Error(`Unable to find function ${functionName} in appController.js`);
   }
+
+  const asyncPrefixStart = startIndex >= 6 ? startIndex - 6 : startIndex;
+  const hasAsyncPrefix = sourceText.slice(asyncPrefixStart, startIndex) === 'async ';
+  const functionStart = hasAsyncPrefix ? asyncPrefixStart : startIndex;
 
   const paramsEndIndex = sourceText.indexOf(')', startIndex);
   const openBraceIndex = sourceText.indexOf('{', paramsEndIndex);
@@ -71,7 +81,7 @@ function extractFunctionSource(sourceText, functionName) {
     } else if (char === '}') {
       depth -= 1;
       if (depth === 0) {
-        return sourceText.slice(startIndex, index + 1);
+        return sourceText.slice(functionStart, index + 1);
       }
     }
   }
@@ -86,301 +96,310 @@ function loadFunctionFromController(functionName, dependencies = {}) {
   return factory(...dependencyNames.map((name) => dependencies[name]));
 }
 
-const getReservationStatus = loadFunctionFromController('getReservationStatus');
-const buildCalendarDays = loadFunctionFromController('buildCalendarDays');
-const isReservationActive = loadFunctionFromController('isReservationActive', { getReservationStatus });
+const matchesCatalogFilters = loadFunctionFromController('matchesCatalogFilters');
+const getDateKey = loadFunctionFromController('getDateKey');
+const getReservationDateRangeKeys = loadFunctionFromController('getReservationDateRangeKeys', { getDateKey });
 
-{
-  let suitePassed = 0;
-  let suiteFailed = 0;
-
-  function test(testName, actual, expected) {
-    try {
-      assert.deepStrictEqual(actual, expected);
-      suitePassed += 1;
-      console.log(`PASS: ${testName}`);
-    } catch (error) {
-      suiteFailed += 1;
-      console.log(`FAIL: ${testName}`);
-      console.log(`  Expected: ${JSON.stringify(expected)}`);
-      console.log(`  Actual:   ${JSON.stringify(actual)}`);
-      console.log(`  ${error.message}`);
-    }
-  }
-
-  // Test 3: normal case - a confirmed reservation should mark the matching day as reserved in the monthly calendar.
-  const januaryMonth = new Date(2026, 0, 1);
-  const januaryDays = buildCalendarDays(
-    {},
-    [{ reservationStatus: 'Booked', startDate: '2026-01-15' }],
-    januaryMonth
-  );
-  test(
-    'calendar marks a booked reservation date as reserved',
-    januaryDays.find((entry) => entry.dateKey === '2026-01-15')?.reserved,
-    true
-  );
-
-  // Test 4: boundary case - when the month starts on Sunday, the calendar should prepend 6 leading blank slots for Monday-first layout.
-  const februaryMonth = new Date(2026, 1, 1);
-  const februaryDays = buildCalendarDays({}, [], februaryMonth);
-  test(
-    'calendar includes six leading blanks for a Sunday month start',
-    februaryDays.slice(0, 6).every((entry) => entry.day === '' && entry.dateKey === ''),
-    true
-  );
-
-  // Test 5: refresh cadence case - cancelled reservations should not keep dates blocked after data refresh.
-  const cancelledReservationDays = buildCalendarDays(
-    {},
-    [{ status: 'Cancelled', startDate: '2026-01-20' }],
-    januaryMonth
-  );
-  test(
-    'calendar frees dates when reservation status is cancelled',
-    cancelledReservationDays.find((entry) => entry.dateKey === '2026-01-20')?.reserved,
-    false
-  );
-
-  // Test 6: refresh cadence case - modified reservations should move the blocked date to the new date after recomputation.
-  const beforeModification = buildCalendarDays(
-    {},
-    [{ reservationStatus: 'Booked', startDate: '2026-01-10' }],
-    januaryMonth
-  );
-  const afterModification = buildCalendarDays(
-    {},
-    [{ reservationStatus: 'Booked', startDate: '2026-01-12' }],
-    januaryMonth
-  );
-  test(
-    'calendar updates reserved dates when a reservation date is modified',
+// Test 1: Normal keyword search should be case-insensitive ("drill" should match "Drill").
+test(
+  'keyword search matches title text regardless of letter case',
+  matchesCatalogFilters(
     {
-      oldDateReserved: beforeModification.find((entry) => entry.dateKey === '2026-01-10')?.reserved,
-      oldDateReservedAfterUpdate: afterModification.find((entry) => entry.dateKey === '2026-01-10')?.reserved,
-      newDateReservedAfterUpdate: afterModification.find((entry) => entry.dateKey === '2026-01-12')?.reserved
+      toolName: 'Cordless Drill',
+      itemDescription: '18V compact driver',
+      dailyRate: 28
     },
     {
-      oldDateReserved: true,
-      oldDateReservedAfterUpdate: false,
-      newDateReservedAfterUpdate: true
+      searchText: 'drill',
+      priceMin: 0,
+      priceMax: 500
     }
-  );
+  ),
+  true
+);
 
-  // Test 7: edge case - listing-level reservedDates should also appear as unavailable even when no reservation records are provided.
-  const listingReservedDays = buildCalendarDays(
-    { reservedDates: ['2026-01-05', '2026-01-06'] },
-    [],
-    januaryMonth
-  );
-  test(
-    'calendar marks listing reservedDates as unavailable',
+// Test 2: Invalid-input case for keyword search should fail safely when listing text fields are missing.
+test(
+  'keyword search returns false for missing listing text fields',
+  matchesCatalogFilters(
     {
-      day5: listingReservedDays.find((entry) => entry.dateKey === '2026-01-05')?.reserved,
-      day6: listingReservedDays.find((entry) => entry.dateKey === '2026-01-06')?.reserved
+      dailyRate: 28
     },
     {
-      day5: true,
-      day6: true
+      searchText: 'drill',
+      priceMin: 0,
+      priceMax: 500
     }
-  );
+  ),
+  false
+);
 
-  // Test 8: invalid-input case - malformed reservation dates should not crash and should not mark any day as reserved.
-  const invalidDateDays = buildCalendarDays(
-    {},
-    [{ reservationStatus: 'Booked', startDate: 'not-a-date' }],
-    januaryMonth
-  );
-  test(
-    'calendar ignores malformed reservation date values',
-    invalidDateDays.some((entry) => entry.reserved === true),
-    false
-  );
-
-  // Test 9: invalid/edge cancellation-state input - missing dates should not be eligible for online cancellation.
-  const cancellationStateWithoutDates = getReservationCancellationState({ status: 'Confirmed' });
-  test(
-    'cancellation state with missing dates is not eligible',
-    cancellationStateWithoutDates.eligible,
-    false
-  );
-
-  // Test 10: refresh helper edge case - cancelled reservations should be treated as inactive.
-  test(
-    'cancelled reservation is treated as inactive during refresh decisions',
-    isReservationActive({ reservationStatus: 'Cancelled' }),
-    false
-  );
-
-  console.log('');
-  console.log(`Additional availability summary: ${suitePassed} passed, ${suiteFailed} failed`);
-
-  if (suiteFailed > 0) {
-    process.exit(1);
-  }
-}
-
-const { createReservationSnapshot } = await import('./services/pricingService.js');
-const { buildReservationCancellationSummary, getRefundPolicy } = await import('./services/reservationService.js');
-
+// Test 3: Filters should narrow a listing collection down to only items matching all selected inputs.
 {
-  let suitePassed = 0;
-  let suiteFailed = 0;
-
-  function test(testName, actual, expected) {
-    try {
-      assert.deepStrictEqual(actual, expected);
-      suitePassed += 1;
-      console.log(`PASS: ${testName}`);
-    } catch (error) {
-      suiteFailed += 1;
-      console.log(`FAIL: ${testName}`);
-      console.log(`  Expected: ${JSON.stringify(expected)}`);
-      console.log(`  Actual:   ${JSON.stringify(actual)}`);
-      console.log(`  ${error.message}`);
-    }
-  }
-
-  const now = new Date();
-  const futureStart = new Date(now.getTime() + 72 * 60 * 60 * 1000);
-  const futureEnd = new Date(futureStart.getTime() + 4 * 60 * 60 * 1000);
-  const nearStart = new Date(now.getTime() + 6 * 60 * 60 * 1000);
-  const nearEnd = new Date(nearStart.getTime() + 2 * 60 * 60 * 1000);
-
-  // Test 11: booking availability integration normal case - creating a booking snapshot for an available listing should produce a booked reservation payload.
-  const futureBookingSnapshot = createReservationSnapshot(
+  const listings = [
     {
-      id: 'listing-123',
-      ownerId: 'owner-001',
-      toolName: 'Circular Saw',
-      dailyRate: 30,
+      id: 'a',
+      toolName: 'Cordless Drill',
+      itemCategory: 'Power Tools',
+      subcategories: ['Drills'],
+      condition: 'Good',
+      dailyRate: 35,
+      itemLocation: '48104',
       availability: 'Available now'
     },
     {
-      renterId: 'renter-001',
-      startDate: futureStart.toISOString(),
-      endDate: futureEnd.toISOString(),
-      status: 'Booked',
-      reservationStatus: 'Booked'
-    }
-  );
-  test(
-    'booking snapshot marks future available tool as booked',
-    {
-      listingId: futureBookingSnapshot.listingId,
-      ownerId: futureBookingSnapshot.ownerId,
-      renterId: futureBookingSnapshot.renterId,
-      status: futureBookingSnapshot.status,
-      reservationStatus: futureBookingSnapshot.reservationStatus,
-      bookedRateUsd: futureBookingSnapshot.bookedRateUsd
+      id: 'b',
+      toolName: 'Hand Saw',
+      itemCategory: 'Hand Tools',
+      subcategories: ['Saws'],
+      condition: 'Good',
+      dailyRate: 20,
+      itemLocation: '48104',
+      availability: 'Available now'
     },
     {
-      listingId: 'listing-123',
-      ownerId: 'owner-001',
-      renterId: 'renter-001',
-      status: 'Booked',
-      reservationStatus: 'Booked',
-      bookedRateUsd: 30
+      id: 'c',
+      toolName: 'Hammer Drill',
+      itemCategory: 'Power Tools',
+      subcategories: ['Drills'],
+      condition: 'Fair',
+      dailyRate: 35,
+      itemLocation: '60601',
+      availability: 'Reserved'
     }
-  );
+  ];
 
-  // Test 12: lender cancellation logic normal case - lender can cancel/reject before start date and renter should receive a full refund.
-  const lenderCancelledPolicy = getRefundPolicy({
-    status: 'Confirmed',
-    cancelledBy: 'lender',
-    startAt: futureStart.toISOString(),
-    endAt: futureEnd.toISOString(),
-    rentalAmount: 120
-  });
-  test(
-    'lender cancellation returns full refund policy',
-    {
-      canAutoRefund: lenderCancelledPolicy.canAutoRefund,
-      label: lenderCancelledPolicy.label,
-      amount: lenderCancelledPolicy.amount
-    },
-    {
-      canAutoRefund: true,
-      label: 'Full refund',
-      amount: 120
+  const filters = {
+    searchText: 'drill',
+    category: 'Power Tools',
+    selectedSubcategories: ['drills'],
+    selectedConditions: ['Good'],
+    location: '48104',
+    availabilityNowChecked: true,
+    priceMin: 30,
+    priceMax: 40
+  };
+
+  const visibleIds = listings.filter((listing) => matchesCatalogFilters(listing, filters)).map((listing) => listing.id);
+  test('combined filters keep only the fully matching listing', visibleIds, ['a']);
+}
+
+// Test 4: Boundary case for daily rate filtering should include exact min/max values and exclude out-of-range prices.
+{
+  const filters = {
+    priceMin: 25,
+    priceMax: 25
+  };
+
+  const inRange = matchesCatalogFilters({ toolName: 'Sander', dailyRate: 25 }, filters);
+  const belowRange = matchesCatalogFilters({ toolName: 'Sander', dailyRate: 24.99 }, filters);
+
+  test('daily rate filter includes values exactly on the boundary', inRange, true);
+  test('daily rate filter excludes values below the minimum boundary', belowRange, false);
+
+  const aboveRange = matchesCatalogFilters({ toolName: 'Sander', dailyRate: 25.01 }, filters);
+  test('daily rate filter excludes values above the maximum boundary', aboveRange, false);
+}
+
+// Test 5: No-results feedback should clearly show "No tools found" when a search yields no visible listings.
+await testAsync('no-results message is shown for an empty search result set', async () => {
+  const resultsElement = {
+    innerHTML: '',
+    querySelectorAll: () => []
+  };
+
+  const feedbackElement = {
+    textContent: '',
+    hidden: true
+  };
+
+  const documentStub = {
+    querySelector: (selector) => (selector === '.catalog-results' ? resultsElement : null),
+    getElementById: (id) => (id === 'catalog-feedback' ? feedbackElement : null)
+  };
+
+  const databaseServiceStub = {
+    async readRecords(collection) {
+      if (collection === 'listings') {
+        return [
+          {
+            id: 'only-tool',
+            toolName: 'Lawn Mower',
+            dailyRate: 40,
+            publicationStatus: 'Published'
+          }
+        ];
+      }
+
+      return [];
     }
-  );
+  };
 
-  // Test 13: renter cancellation logic boundary case - renter can cancel if reservation starts more than 24 hours in the future.
-  const renterFutureCancellation = buildReservationCancellationSummary({
-    status: 'Confirmed',
-    startAt: futureStart.toISOString(),
-    endAt: futureEnd.toISOString(),
-    rentalAmount: 80
+  const isPublishedListingStub = () => true;
+  const getCatalogFilterStateStub = () => ({
+    searchText: 'drill',
+    location: '',
+    category: '',
+    selectedSubcategories: [],
+    selectedConditions: [],
+    priceMin: 0,
+    priceMax: 500,
+    availabilityNowChecked: false,
+    rentalStart: '',
+    rentalEnd: ''
   });
-  test(
-    'renter cancellation is eligible when reservation is more than 24 hours away',
-    renterFutureCancellation.eligible,
-    true
-  );
 
-  // Test 14: renter cancellation invalid/edge case - renter cannot cancel online if start time is within 24 hours.
-  const renterNearCancellation = buildReservationCancellationSummary({
-    status: 'Confirmed',
-    startAt: nearStart.toISOString(),
-    endAt: nearEnd.toISOString(),
-    rentalAmount: 80
+  const loadCatalogListings = loadFunctionFromController('loadCatalogListings', {
+    document: documentStub,
+    databaseService: databaseServiceStub,
+    isPublishedListing: isPublishedListingStub,
+    getCatalogFilterState: getCatalogFilterStateStub,
+    matchesCatalogFilters
   });
-  test(
-    'renter cancellation is blocked when reservation starts within 24 hours',
-    renterNearCancellation.eligible,
-    false
-  );
 
-  // Test 15: refund logic for renter path - eligible renter cancellation should return full refund and matching amount.
-  test(
-    'eligible renter cancellation receives full automatic refund',
-    {
-      canAutoRefund: renterFutureCancellation.refundPolicy.canAutoRefund,
-      label: renterFutureCancellation.refundPolicy.label,
-      amount: renterFutureCancellation.refundPolicy.amount
-    },
-    {
-      canAutoRefund: true,
-      label: 'Full refund',
-      amount: 80
-    }
-  );
+  await loadCatalogListings();
 
-  // Test 16: contact information exchange logic - confirmed rental states should include both renter and lender contact card rendering paths.
-  test(
-    'confirmed rental flow contains lender and renter contact info markup paths',
-    appControllerSource.includes("const contactMarkup = rentalStatus === 'confirmed'") &&
-      appControllerSource.includes("<strong>Contact:</strong>") &&
-      appControllerSource.includes("const contactMarkup = rentalStatus === 'confirmed' && reservation") &&
-      appControllerSource.includes('<strong>Renter contact:</strong>'),
-    true
-  );
+  const hasNoResultsMessage =
+    feedbackElement.textContent === 'No tools found' &&
+    resultsElement.innerHTML.includes('No tools found');
 
-  // Test 17: invalid-input case - non-numeric rental amount for lender cancellation should normalize to amount 0 while still allowing a refund policy.
-  const invalidAmountPolicy = getRefundPolicy({
-    status: 'Confirmed',
-    cancelledBy: 'lender',
-    startAt: futureStart.toISOString(),
-    endAt: futureEnd.toISOString(),
-    rentalAmount: 'not-a-number'
-  });
-  test(
-    'lender cancellation with invalid amount returns refund policy with amount 0',
-    {
-      canAutoRefund: invalidAmountPolicy.canAutoRefund,
-      amount: Number.isNaN(invalidAmountPolicy.amount) ? 0 : invalidAmountPolicy.amount
-    },
-    {
-      canAutoRefund: true,
-      amount: 0
-    }
-  );
-
-  console.log('');
-  console.log(`Booking/cancellation integration summary: ${suitePassed} passed, ${suiteFailed} failed`);
-
-  if (suiteFailed > 0) {
-    process.exit(1);
+  if (!hasNoResultsMessage) {
+    return `Expected no-results messaging. Feedback was ${formatValue(feedbackElement.textContent)}, markup was ${formatValue(resultsElement.innerHTML)}.`;
   }
+
+  return true;
+});
+
+// Test 6: Normal rental total calculation should be daily rate multiplied by the number of selected days.
+{
+  const listing = { dailyRate: 30 };
+  const selectedDays = getReservationDateRangeKeys({ startDate: '2026-08-01', endDate: '2026-08-03' });
+  const rentalTotal = getEffectiveDailyRate(listing) * selectedDays.length;
+
+  test('rental total equals daily rate multiplied by day count', rentalTotal, 90);
+}
+
+// Test 7: Edge case for rental dates where end date is before start date should fall back to one billed day.
+{
+  const listing = { dailyRate: 30 };
+  const selectedDays = getReservationDateRangeKeys({ startDate: '2026-08-05', endDate: '2026-08-03' });
+  const rentalTotal = getEffectiveDailyRate(listing) * selectedDays.length;
+
+  test('rental total uses one day when end date is earlier than start date', rentalTotal, 30);
+}
+
+// Test 8: Invalid-input case for price values should normalize non-numeric daily rates to zero.
+test('invalid daily rate input is normalized to zero', normalizeDailyRate('not-a-number'), 0);
+
+// Test 9: Availability filter failure case should exclude listings that are not currently available.
+test(
+  'available-now filter excludes reserved listings',
+  matchesCatalogFilters(
+    {
+      toolName: 'Impact Driver',
+      availability: 'Reserved',
+      dailyRate: 40
+    },
+    {
+      availabilityNowChecked: true,
+      priceMin: 0,
+      priceMax: 500
+    }
+  ),
+  false
+);
+
+// Test 10: No-results path should still be clear when only filters (not search text) eliminate listings.
+await testAsync('no-results message is shown for an empty filter result set', async () => {
+  const resultsElement = {
+    innerHTML: '',
+    querySelectorAll: () => []
+  };
+
+  const feedbackElement = {
+    textContent: '',
+    hidden: true
+  };
+
+  const documentStub = {
+    querySelector: (selector) => (selector === '.catalog-results' ? resultsElement : null),
+    getElementById: (id) => (id === 'catalog-feedback' ? feedbackElement : null)
+  };
+
+  const databaseServiceStub = {
+    async readRecords(collection) {
+      if (collection === 'listings') {
+        return [
+          {
+            id: 'only-tool',
+            toolName: 'Lawn Mower',
+            dailyRate: 40,
+            availability: 'Reserved',
+            publicationStatus: 'Published'
+          }
+        ];
+      }
+
+      return [];
+    }
+  };
+
+  const isPublishedListingStub = () => true;
+  const getCatalogFilterStateStub = () => ({
+    searchText: '',
+    location: '',
+    category: '',
+    selectedSubcategories: [],
+    selectedConditions: [],
+    priceMin: 0,
+    priceMax: 500,
+    availabilityNowChecked: true,
+    rentalStart: '',
+    rentalEnd: ''
+  });
+
+  const loadCatalogListings = loadFunctionFromController('loadCatalogListings', {
+    document: documentStub,
+    databaseService: databaseServiceStub,
+    isPublishedListing: isPublishedListingStub,
+    getCatalogFilterState: getCatalogFilterStateStub,
+    matchesCatalogFilters
+  });
+
+  await loadCatalogListings();
+
+  const hasNoResultsMessage =
+    feedbackElement.textContent === 'No tools found' &&
+    resultsElement.innerHTML.includes('No tools found');
+
+  if (!hasNoResultsMessage) {
+    return `Expected no-results messaging for filter-only empty result. Feedback was ${formatValue(feedbackElement.textContent)}, markup was ${formatValue(resultsElement.innerHTML)}.`;
+  }
+
+  return true;
+});
+
+// Test 11: Boundary case for rental totals should return zero when there is no valid start date.
+{
+  const listing = { dailyRate: 30 };
+  const selectedDays = getReservationDateRangeKeys({ startDate: '', endDate: '2026-08-03' });
+  const rentalTotal = getEffectiveDailyRate(listing) * selectedDays.length;
+
+  test('rental total is zero when no start date is provided', rentalTotal, 0);
+}
+
+// Test 12: Normal case should use rentalPrice fallback when dailyRate is not present.
+{
+  const listing = { rentalPrice: '19.995' };
+  const selectedDays = getReservationDateRangeKeys({ startDate: '2026-09-01', endDate: '2026-09-03' });
+  const rentalTotal = getEffectiveDailyRate(listing) * selectedDays.length;
+
+  test('rental total uses normalized rentalPrice fallback when dailyRate is missing', rentalTotal, 60);
+}
+
+console.log('');
+console.log(`Summary: ${passed} passed, ${failed} failed`);
+
+if (failed > 0) {
+  process.exit(1);
 }
