@@ -23,6 +23,8 @@ function getFriendlyAuthError(error) {
   const inferredCode = code || (message.includes('account-exists-with-different-credential') ? 'auth/account-exists-with-different-credential' :
     message.includes('credential-already-in-use') ? 'auth/credential-already-in-use' :
     message.includes('phone-number-already-exists') ? 'auth/phone-number-already-exists' :
+    message.includes('missing or insufficient permissions') ? 'firestore/permission-denied' :
+    message.includes('permission-denied') ? 'firestore/permission-denied' :
     (message.includes('invalid-credential') || message.includes('invalid login credentials')) ? 'auth/invalid-credential' :
     '');
 
@@ -64,6 +66,9 @@ function getFriendlyAuthError(error) {
       return 'Phone SMS verification is unavailable until billing is enabled in Firebase.';
     case 'auth/account-exists-with-different-credential':
       return 'An account already exists with this phone number using a different sign-in method. Try signing in with that method, then link additional sign-in methods in your profile settings.';
+    case 'firestore/permission-denied':
+    case 'permission-denied':
+      return 'Authentication succeeded, but database access is blocked by Firestore security rules. Update your Firestore rules to restore reads/writes.';
     default:
       return error?.message || 'An unexpected error occurred. Please try again.';
   }

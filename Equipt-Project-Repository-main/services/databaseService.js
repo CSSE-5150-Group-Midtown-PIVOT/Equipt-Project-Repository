@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, getDocs, setDoc, updateDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js';
 import { firebaseDb } from './firebase-config.js';
 
 export class DatabaseService {
@@ -10,11 +10,10 @@ export class DatabaseService {
   }
 
   async getUserProfile(uid) {
-    const userDoc = await doc(firebaseDb, 'users', uid);
-    const snapshot = await getDocs(collection(firebaseDb, 'users'));
-    const match = snapshot.docs.find((docSnapshot) => docSnapshot.id === uid);
+    const userRef = doc(firebaseDb, 'users', uid);
+    const snapshot = await getDoc(userRef);
 
-    return match ? { id: match.id, ...match.data() } : null;
+    return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
   }
 
   async createRecord(collectionName, data) {
