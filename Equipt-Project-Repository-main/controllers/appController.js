@@ -33,7 +33,7 @@ function getFriendlyAuthError(error) {
       return 'Please enter a valid email address.';
     case 'auth/invalid-credential':
     case 'auth/invalid-login-credentials':
-      return 'incorrect username or password';
+      return 'Incorrect username or password';
     case 'auth/user-disabled':
       return 'This user account has been disabled.';
     case 'auth/user-not-found':
@@ -365,7 +365,7 @@ function showLoginFormPage() {
     try {
       await authService.login(email, password);
       getStoredAuthRedirect();
-      setLoginSuccess('Successful login: welcome to Equipt!');
+      setLoginSuccess('Successful login: Welcome to Equipt!');
       window.setTimeout(() => {
         window.location.hash = 'home';
       }, 800);
@@ -2107,7 +2107,6 @@ async function loadCatalogListings() {
                   <p>No real charges or data storage. Enter your name to complete this demo checkout. Other fields are optional.</p>
                 </div>
                 <div class="catalog-payment-panel__fields">
-                  <div class="catalog-payment-confirmation" role="status" hidden></div>
                   <label class="catalog-payment-field">
                     <span>Name on card</span>
                     <input type="text" autocomplete="cc-name" placeholder="Abhijeet Hoshing" />
@@ -2132,6 +2131,7 @@ async function loadCatalogListings() {
                   </div>
                 </div>
                 <button type="button" class="catalog-payment-action" data-listing-id="${escapeHtml(listing.id)}">Pay and complete booking</button>
+                <div class="catalog-payment-confirmation" role="status" hidden></div>
               </div>
             </div>
           </div>
@@ -3005,23 +3005,26 @@ async function loadRenterReservations(currentUser) {
       `;
     };
 
-    const renderReservationGroup = (title, bucketKey, emptyMessage) => {
+    const renderReservationGroup = (title, bucketKey, emptyMessage, openByDefault = false) => {
       const reservations = groupedReservations[bucketKey] || [];
       return `
-        <section class="reservation-history-group">
-          <h4 class="reservation-history-group__heading">${escapeHtml(title)}</h4>
-          <div class="reservation-history-group__list">
+        <details class="booking-status-folder" ${openByDefault ? 'open' : ''}>
+          <summary>
+            <span>${escapeHtml(title)}</span>
+            <span class="booking-count-badge">${reservations.length}</span>
+          </summary>
+          <div class="booking-status-folder__content">
             ${reservations.length ? reservations.map((reservation) => renderReservationCard(reservation, bucketKey)).join('') : `<p class="empty-state">${escapeHtml(emptyMessage)}</p>`}
           </div>
-        </section>
+        </details>
       `;
     };
 
     upcomingShell.innerHTML = '';
     historyShell.innerHTML = `
       <div class="reservation-history-groups">
+        ${renderReservationGroup('Upcoming Bookings', 'upcoming', 'You do not have any upcoming rentals right now.', true)}
         ${renderReservationGroup('Cancelled Bookings', 'cancelled', 'No cancelled bookings yet.')}
-        ${renderReservationGroup('Upcoming Bookings', 'upcoming', 'You do not have any upcoming rentals right now.')}
         ${renderReservationGroup('Past Bookings', 'past', 'No past bookings yet.')}
       </div>
     `;

@@ -23,7 +23,6 @@ export function renderLoginFormView() {
         </div>
         <p class="login-card__subtext">Welcome back. Sign in to manage your rentals and listings.</p>
         <form id="login-form" class="login-form">
-          <div id="login-error" class="form-error" role="alert" aria-live="polite" hidden></div>
           <div id="login-success" class="form-success" role="status" aria-live="polite" hidden></div>
           <label class="form-field">
             Email
@@ -50,6 +49,7 @@ export function renderLoginFormView() {
               </button>
             </div>
           </label>
+          <div id="login-error" class="form-error" role="alert" aria-live="polite" hidden></div>
           <div class="login-actions">
             <button type="submit">Submit</button>
             <button id="back-btn" class="secondary">Back</button>

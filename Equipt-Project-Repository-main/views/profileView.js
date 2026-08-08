@@ -61,7 +61,7 @@ export function renderProfileView(profile = {}) {
             <button type="button" id="logout-btn" class="secondary">Log Out</button>
           </div>
 
-        <section class="card">
+        <section class="card profile-content-block">
           <div class="profile-section-header">
             <h3>My Tool Listings</h3>
             <p>Manage the tools you are currently renting out.</p>
@@ -69,9 +69,9 @@ export function renderProfileView(profile = {}) {
           <div id="my-listings-shell" class="my-listings-shell"></div>
         </section>
 
-        <section class="card">
+        <section class="card profile-content-block">
           <div class="profile-section-header">
-            <h3>Renter Reservations</h3>
+            <h3>Rental Reservations</h3>
             <p>Track your upcoming rentals, cancellations, and reservation history.</p>
           </div>
           <div id="reservation-status" class="form-status" hidden></div>
@@ -79,9 +79,9 @@ export function renderProfileView(profile = {}) {
           <div id="history-rentals-shell" class="reservation-shell"></div>
         </section>
 
-        <section class="card">
+        <section class="card profile-content-block">
           <div class="profile-section-header">
-            <h3>Booking Requests</h3>
+            <h3>Lender Booking Requests</h3>
             <p>Review incoming requests for your tools and manage pending or confirmed bookings.</p>
           </div>
           <div id="booking-requests-shell" class="booking-requests-shell"></div>
