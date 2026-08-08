@@ -2918,141 +2918,115 @@ async function loadRenterReservations(currentUser) {
       return renterId === currentUser.uid;
     }).map(withListing);
 
-    const upcoming = renterReservations.filter((reservation) => {
+    const isConfirmedLikeStatus = (normalizedStatus = '') => ['confirmed', 'booked', 'reserved'].includes(normalizedStatus);
+    const getReservationStartValue = (reservation = {}) => reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
+    const getReservationDateScore = (reservation = {}) => {
+      const startValue = getReservationStartValue(reservation);
+      const parsedDate = startValue ? new Date(startValue) : null;
+      return parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.getTime() : 0;
+    };
+
+    const groupedReservations = {
+      cancelled: [],
+      upcoming: [],
+      past: []
+    };
+
+    renterReservations.forEach((reservation) => {
       const summary = buildReservationCancellationSummary(reservation);
       const normalizedStatus = String(reservation.status || '').trim().toLowerCase();
-      return normalizedStatus !== 'cancelled' && !summary.hasStarted && !summary.hasEnded && (summary.eligible || normalizedStatus === 'confirmed' || normalizedStatus === 'booked' || normalizedStatus === 'reserved');
+
+      if (normalizedStatus === 'cancelled' || normalizedStatus === 'canceled') {
+        groupedReservations.cancelled.push(reservation);
+        return;
+      }
+
+      if (summary.hasStarted || summary.hasEnded || (!summary.eligible && !isConfirmedLikeStatus(normalizedStatus))) {
+        groupedReservations.past.push(reservation);
+        return;
+      }
+
+      groupedReservations.upcoming.push(reservation);
     });
 
-    const history = renterReservations.filter((reservation) => {
+    groupedReservations.upcoming.sort((left, right) => getReservationDateScore(left) - getReservationDateScore(right));
+    groupedReservations.cancelled.sort((left, right) => getReservationDateScore(right) - getReservationDateScore(left));
+    groupedReservations.past.sort((left, right) => getReservationDateScore(right) - getReservationDateScore(left));
+
+    const renderReservationCard = (reservation, bucket = 'upcoming') => {
       const summary = buildReservationCancellationSummary(reservation);
-      const normalizedStatus = String(reservation.status || '').trim().toLowerCase();
-      return normalizedStatus === 'cancelled' || summary.hasStarted || summary.hasEnded || (!summary.eligible && normalizedStatus !== 'confirmed' && normalizedStatus !== 'booked' && normalizedStatus !== 'reserved');
-    });
+      const refundPolicy = getRefundPolicy(reservation);
+      const photo = getReservationPhoto(reservation);
+      const toolName = getReservationToolName(reservation);
+      const status = String(reservation.status || (bucket === 'upcoming' ? 'Confirmed' : 'Completed')).trim();
+      const normalizedStatus = status.toLowerCase();
+      const showRefundLine = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+      const reservationDates = getReservationStartValue(reservation);
+      const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
+      const displayDates = reservationDates
+        ? `${formatReservationDateTime(reservationDates)}${reservationEndDate && reservationEndDate !== reservationDates ? ` – ${formatReservationDateTime(reservationEndDate)}` : ''}`
+        : 'Not provided';
+      const isHistoryCard = bucket === 'cancelled' || bucket === 'past';
 
-    const cancelledHistory = history.filter((reservation) => {
-      const normalizedStatus = String(reservation.status || '').trim().toLowerCase();
-      return normalizedStatus === 'cancelled' || normalizedStatus === 'canceled' || normalizedStatus === 'rejected';
-    });
-
-    const completedHistory = history.filter((reservation) => {
-      const normalizedStatus = String(reservation.status || '').trim().toLowerCase();
-      return normalizedStatus !== 'cancelled' && normalizedStatus !== 'canceled' && normalizedStatus !== 'rejected';
-    });
-
-    upcomingShell.innerHTML = upcoming.length
-      ? upcoming.map((reservation) => {
-        const summary = buildReservationCancellationSummary(reservation);
-        const refundPolicy = getRefundPolicy(reservation);
-        const photo = getReservationPhoto(reservation);
-        const toolName = getReservationToolName(reservation);
-        const status = String(reservation.status || 'Confirmed').trim();
-        const normalizedStatus = status.toLowerCase();
-        const ownerId = reservation.ownerId || reservation.listing?.ownerId || '';
-        const ownerProfile = userLookup.get(ownerId) || null;
-        const lenderName = [ownerProfile?.firstName, ownerProfile?.lastName].filter(Boolean).join(' ') || 'Lender';
-        const lenderEmail = ownerProfile?.email || reservation.ownerEmail || reservation.listing?.ownerEmail || '';
-        const lenderPhone = ownerProfile?.phone || reservation.ownerPhone || reservation.listing?.ownerPhone || '';
-        const lenderContactMarkup = !['cancelled', 'canceled', 'rejected'].includes(normalizedStatus)
-          ? `
-              <div class="rental-contact-card">
-                <p><strong>Lender contact:</strong> ${escapeHtml(lenderName)}</p>
-                ${lenderEmail ? `<p><strong>Email:</strong> ${escapeHtml(lenderEmail)}</p>` : ''}
-                ${lenderPhone ? `<p><strong>Phone:</strong> ${escapeHtml(lenderPhone)}</p>` : ''}
-              </div>
-            `
-          : '';
-        const showRefundLine = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
-        const reservationDates = reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
-        const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
-        const displayDates = reservationDates
-          ? `${formatReservationDateTime(reservationDates)}${reservationEndDate && reservationEndDate !== reservationDates ? ` – ${formatReservationDateTime(reservationEndDate)}` : ''}`
-          : 'Not provided';
-        return `
-          <article class="reservation-card" data-reservation-id="${escapeHtml(reservation.id)}">
-            <div class="reservation-card__media">
-              ${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(toolName)}" />` : '<div class="reservation-card__placeholder">No photo</div>'}
+      const ownerId = reservation.ownerId || reservation.listing?.ownerId || '';
+      const ownerProfile = userLookup.get(ownerId) || null;
+      const lenderName = [ownerProfile?.firstName, ownerProfile?.lastName].filter(Boolean).join(' ') || 'Lender';
+      const lenderEmail = ownerProfile?.email || reservation.ownerEmail || reservation.listing?.ownerEmail || '';
+      const lenderPhone = ownerProfile?.phone || reservation.ownerPhone || reservation.listing?.ownerPhone || '';
+      const lenderContactMarkup = !['cancelled', 'canceled', 'rejected'].includes(normalizedStatus)
+        ? `
+            <div class="rental-contact-card">
+              <p><strong>Lender contact:</strong> ${escapeHtml(lenderName)}</p>
+              ${lenderEmail ? `<p><strong>Email:</strong> ${escapeHtml(lenderEmail)}</p>` : ''}
+              ${lenderPhone ? `<p><strong>Phone:</strong> ${escapeHtml(lenderPhone)}</p>` : ''}
             </div>
-            <div class="reservation-card__details">
-              <h4>${escapeHtml(toolName)}</h4>
-              <p><strong>Dates:</strong> ${escapeHtml(displayDates)}</p>
-              <p><strong>Status:</strong> ${escapeHtml(status)}</p>
-              ${lenderContactMarkup}
-              <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
-              ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
-              ${summary.eligible
-          ? `<button type="button" class="secondary reservation-cancel-btn" data-reservation-id="${escapeHtml(reservation.id)}">Cancel Reservation</button>`
-          : `<p class="reservation-message">${escapeHtml(summary.message)}</p>`}
-            </div>
-          </article>
-        `;
-      }).join('')
-      : '<p class="empty-state">You do not have any upcoming rentals right now.</p>';
+          `
+        : '';
 
-    const renderHistoryReservationCard = (reservation) => {
-        const summary = buildReservationCancellationSummary(reservation);
-        const refundPolicy = getRefundPolicy(reservation);
-        const photo = getReservationPhoto(reservation);
-        const toolName = getReservationToolName(reservation);
-        const status = String(reservation.status || 'Completed').trim();
-        const normalizedStatus = status.toLowerCase();
-        const ownerId = reservation.ownerId || reservation.listing?.ownerId || '';
-        const ownerProfile = userLookup.get(ownerId) || null;
-        const lenderName = [ownerProfile?.firstName, ownerProfile?.lastName].filter(Boolean).join(' ') || 'Lender';
-        const lenderEmail = ownerProfile?.email || reservation.ownerEmail || reservation.listing?.ownerEmail || '';
-        const lenderPhone = ownerProfile?.phone || reservation.ownerPhone || reservation.listing?.ownerPhone || '';
-        const lenderContactMarkup = !['cancelled', 'canceled', 'rejected'].includes(normalizedStatus)
-          ? `
-              <div class="rental-contact-card">
-                <p><strong>Lender contact:</strong> ${escapeHtml(lenderName)}</p>
-                ${lenderEmail ? `<p><strong>Email:</strong> ${escapeHtml(lenderEmail)}</p>` : ''}
-                ${lenderPhone ? `<p><strong>Phone:</strong> ${escapeHtml(lenderPhone)}</p>` : ''}
-              </div>
-            `
-          : '';
-        const showRefundLine = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
-        const reservationDates = reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
-        const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
-        const displayDates = reservationDates
-          ? `${formatReservationDateTime(reservationDates)}${reservationEndDate && reservationEndDate !== reservationDates ? ` – ${formatReservationDateTime(reservationEndDate)}` : ''}`
-          : 'Not provided';
-        return `
-          <article class="reservation-card reservation-card--history">
-            <div class="reservation-card__media">
-              ${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(toolName)}" />` : '<div class="reservation-card__placeholder">No photo</div>'}
-            </div>
-            <div class="reservation-card__details">
-              <h4>${escapeHtml(toolName)}</h4>
-              <p><strong>Dates:</strong> ${escapeHtml(displayDates)}</p>
-              <p><strong>Status:</strong> ${escapeHtml(status)}</p>
-              ${lenderContactMarkup}
-              ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
-              <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
-            </div>
-          </article>
-        `;
-      };
+      return `
+        <article class="reservation-card${isHistoryCard ? ' reservation-card--history' : ''}" data-reservation-id="${escapeHtml(reservation.id)}">
+          <div class="reservation-card__media">
+            ${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(toolName)}" />` : '<div class="reservation-card__placeholder">No photo</div>'}
+          </div>
+          <div class="reservation-card__details">
+            <h4>${escapeHtml(toolName)}</h4>
+            <p><strong>Dates:</strong> ${escapeHtml(displayDates)}</p>
+            <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+            ${lenderContactMarkup}
+            ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
+            <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
+            ${bucket === 'upcoming'
+          ? (summary.eligible
+              ? `<button type="button" class="secondary reservation-cancel-btn" data-reservation-id="${escapeHtml(reservation.id)}">Cancel Reservation</button>`
+              : `<p class="reservation-message">${escapeHtml(summary.message)}</p>`)
+          : ''}
+          </div>
+        </article>
+      `;
+    };
 
-    const renderHistorySection = (title, reservations, emptyMessage, openByDefault = false) => `
-      <details class="booking-status-folder" ${openByDefault ? 'open' : ''}>
-        <summary>
-          <span>${escapeHtml(title)}</span>
-          <span class="booking-count-badge">${reservations.length}</span>
-        </summary>
-        <div class="booking-status-folder__content">
-          ${reservations.length ? reservations.map((reservation) => renderHistoryReservationCard(reservation)).join('') : `<p class="empty-state">${escapeHtml(emptyMessage)}</p>`}
-        </div>
-      </details>
+    const renderReservationGroup = (title, bucketKey, emptyMessage) => {
+      const reservations = groupedReservations[bucketKey] || [];
+      return `
+        <section class="reservation-history-group">
+          <h4 class="reservation-history-group__heading">${escapeHtml(title)}</h4>
+          <div class="reservation-history-group__list">
+            ${reservations.length ? reservations.map((reservation) => renderReservationCard(reservation, bucketKey)).join('') : `<p class="empty-state">${escapeHtml(emptyMessage)}</p>`}
+          </div>
+        </section>
+      `;
+    };
+
+    upcomingShell.innerHTML = '';
+    historyShell.innerHTML = `
+      <div class="reservation-history-groups">
+        ${renderReservationGroup('Cancelled Bookings', 'cancelled', 'No cancelled bookings yet.')}
+        ${renderReservationGroup('Upcoming Bookings', 'upcoming', 'You do not have any upcoming rentals right now.')}
+        ${renderReservationGroup('Past Bookings', 'past', 'No past bookings yet.')}
+      </div>
     `;
 
-    historyShell.innerHTML = history.length
-      ? `
-          ${renderHistorySection('Completed Reservations', completedHistory, 'No completed reservations yet.', true)}
-          ${renderHistorySection('Cancelled Reservations', cancelledHistory, 'No cancelled reservations.', false)}
-        `
-      : '<p class="empty-state">No cancelled or completed reservations yet.</p>';
-
-    upcomingShell.querySelectorAll('.reservation-cancel-btn').forEach((button) => {
+    historyShell.querySelectorAll('.reservation-cancel-btn').forEach((button) => {
       button.addEventListener('click', async () => {
         const reservationId = button.getAttribute('data-reservation-id');
         const reservation = renterReservations.find((entry) => entry.id === reservationId);

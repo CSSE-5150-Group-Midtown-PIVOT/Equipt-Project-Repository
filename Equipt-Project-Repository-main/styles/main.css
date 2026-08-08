@@ -1874,6 +1874,31 @@ button.secondary {
   min-width: 0;
 }
 
+.reservation-history-groups {
+  display: grid;
+  gap: 1rem;
+}
+
+.reservation-history-group {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.reservation-history-group__heading {
+  margin: 0;
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.reservation-history-group__list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.reservation-history-group__list .empty-state {
+  color: #e2e8f0;
+}
+
 .reservation-card {
   display: flex;
   gap: 1rem;
