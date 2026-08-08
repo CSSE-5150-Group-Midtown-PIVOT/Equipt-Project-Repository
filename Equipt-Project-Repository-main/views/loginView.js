@@ -27,7 +27,24 @@ export function renderLoginFormView() {
         </label>
         <label class="form-field">
           Password
-          <input type="password" id="password" placeholder="Enter password" required />
+          <div class="password-input-wrap">
+            <input type="password" id="password" placeholder="Enter password" required />
+            <button type="button" id="login-password-toggle" class="password-toggle" aria-label="Show password" aria-pressed="false" title="Show password">
+              <span class="password-toggle-icon password-toggle-icon--open" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M1.5 12s3.8-6 10.5-6 10.5 6 10.5 6-3.8 6-10.5 6-10.5-6-10.5-6z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </span>
+              <span class="password-toggle-icon password-toggle-icon--closed is-hidden" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M1.5 12s3.8-6 10.5-6c2.3 0 4.2.7 5.8 1.7"></path>
+                  <path d="M22.5 12s-3.8 6-10.5 6c-2.3 0-4.2-.7-5.8-1.7"></path>
+                  <path d="M3 3l18 18"></path>
+                </svg>
+              </span>
+            </button>
+          </div>
         </label>
         <div class="login-actions">
           <button type="submit">Submit</button>

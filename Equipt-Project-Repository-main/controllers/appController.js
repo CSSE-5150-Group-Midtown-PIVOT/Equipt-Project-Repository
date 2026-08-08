@@ -86,6 +86,36 @@ function getStoredAuthMessage() {
   return message || '';
 }
 
+function initializeLoginPasswordToggle() {
+  const toggleButton = document.getElementById('login-password-toggle');
+  const passwordInput = document.getElementById('password');
+
+  if (!toggleButton || !passwordInput) {
+    return;
+  }
+
+  const openIcon = toggleButton.querySelector('.password-toggle-icon--open');
+  const closedIcon = toggleButton.querySelector('.password-toggle-icon--closed');
+
+  const syncPasswordToggleUi = () => {
+    const showingPassword = passwordInput.type === 'text';
+    const shouldShowOpenEye = !showingPassword;
+
+    toggleButton.setAttribute('aria-pressed', String(showingPassword));
+    toggleButton.setAttribute('aria-label', shouldShowOpenEye ? 'Show password' : 'Hide password');
+    toggleButton.setAttribute('title', shouldShowOpenEye ? 'Show password' : 'Hide password');
+    openIcon?.classList.toggle('is-hidden', !shouldShowOpenEye);
+    closedIcon?.classList.toggle('is-hidden', shouldShowOpenEye);
+  };
+
+  syncPasswordToggleUi();
+
+  toggleButton.addEventListener('click', () => {
+    passwordInput.type = passwordInput.type === 'text' ? 'password' : 'text';
+    syncPasswordToggleUi();
+  });
+}
+
 async function showHomePage() {
   const currentUser = authService.getCurrentUser();
   let userRole = '';
@@ -241,6 +271,7 @@ function showRegistrationPage() {
 
 function showLoginFormPage() {
   renderView(app, renderLoginFormView());
+  initializeLoginPasswordToggle();
 
   const loginForm = document.getElementById('login-form');
   const loginError = document.getElementById('login-error');
