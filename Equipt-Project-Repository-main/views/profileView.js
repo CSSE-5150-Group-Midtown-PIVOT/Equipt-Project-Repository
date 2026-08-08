@@ -27,61 +27,66 @@ export function renderProfileView(profile = {}) {
   const joined = profile.createdAt ? new Date(profile.createdAt).toLocaleDateString() : 'Recently joined';
 
   return `
-    <section class="card">
-      <div class="profile-card-layout">
-        <div class="profile-card-content">
-          <h2>Profile</h2>
-          <p>Your account details are shown below.</p>
-          <div class="profile-details">
-            <p><strong>Name:</strong> ${fullName}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Phone:</strong> ${phone}</p>
-            <p><strong>Role:</strong> ${role}</p>
-            <p><strong>Member since:</strong> ${joined}</p>
+    <section class="profile-hero">
+      <div class="profile-hero__bg" aria-hidden="true"></div>
+      <div class="profile-hero__overlay" aria-hidden="true"></div>
+      <div class="profile-hero__content">
+        <section class="card">
+          <div class="profile-card-layout">
+            <div class="profile-card-content">
+              <h2>Profile</h2>
+              <p>Your account details are shown below.</p>
+              <div class="profile-details">
+                <p><strong>Name:</strong> ${fullName}</p>
+                <p><strong>Email:</strong> ${email}</p>
+                <p><strong>Phone:</strong> ${phone}</p>
+                <p><strong>Role:</strong> ${role}</p>
+                <p><strong>Member since:</strong> ${joined}</p>
+              </div>
+            </div>
+            <div class="profile-photo-panel">
+              <div class="profile-photo-bubble" id="profile-photo-bubble" aria-label="Profile picture">
+                ${profilePhoto
+                  ? `<img src="${escapeHtml(profilePhoto)}" alt="${escapeHtml(fullName)} profile photo" />`
+        : `<span>${initials}</span>`}
+              </div>
+              <input id="profile-photo-input" name="profilePhoto" type="file" accept="image/*" hidden />
+              <button type="button" id="change-profile-photo-btn" class="secondary">${profilePhoto ? 'Change Photo' : 'Upload Photo'}</button>
+              <p id="profile-photo-status" class="profile-photo-status" hidden></p>
+            </div>
           </div>
-        </div>
-        <div class="profile-photo-panel">
-          <div class="profile-photo-bubble" id="profile-photo-bubble" aria-label="Profile picture">
-            ${profilePhoto
-              ? `<img src="${escapeHtml(profilePhoto)}" alt="${escapeHtml(fullName)} profile photo" />`
-    : `<span>${initials}</span>`}
+
+          <div class="profile-form-actions profile-form-actions--top">
+            <button type="button" id="go-update-profile-btn" class="primary">Update Profile</button>
+            <button type="button" id="logout-btn" class="secondary">Log Out</button>
           </div>
-          <input id="profile-photo-input" name="profilePhoto" type="file" accept="image/*" hidden />
-          <button type="button" id="change-profile-photo-btn" class="secondary">${profilePhoto ? 'Change Photo' : 'Upload Photo'}</button>
-          <p id="profile-photo-status" class="profile-photo-status" hidden></p>
-        </div>
-      </div>
 
-      <div class="profile-form-actions profile-form-actions--top">
-        <button type="button" id="go-update-profile-btn" class="primary">Update Profile</button>
-        <button type="button" id="logout-btn" class="secondary">Log Out</button>
-      </div>
-    </section>
+        <section class="card">
+          <div class="profile-section-header">
+            <h3>My Tool Listings</h3>
+            <p>Manage the tools you are currently renting out.</p>
+          </div>
+          <div id="my-listings-shell" class="my-listings-shell"></div>
+        </section>
 
-    <section class="card">
-      <div class="profile-section-header">
-        <h3>My Tool Listings</h3>
-        <p>Manage the tools you are currently renting out.</p>
-      </div>
-      <div id="my-listings-shell" class="my-listings-shell"></div>
-    </section>
+        <section class="card">
+          <div class="profile-section-header">
+            <h3>Renter Reservations</h3>
+            <p>Track your upcoming rentals, cancellations, and reservation history.</p>
+          </div>
+          <div id="reservation-status" class="form-status" hidden></div>
+          <div id="upcoming-rentals-shell" class="reservation-shell"></div>
+          <div id="history-rentals-shell" class="reservation-shell"></div>
+        </section>
 
-    <section class="card">
-      <div class="profile-section-header">
-        <h3>Renter Reservations</h3>
-        <p>Track your upcoming rentals, cancellations, and reservation history.</p>
+        <section class="card">
+          <div class="profile-section-header">
+            <h3>Booking Requests</h3>
+            <p>Review incoming requests for your tools and manage pending or confirmed bookings.</p>
+          </div>
+          <div id="booking-requests-shell" class="booking-requests-shell"></div>
+        </section>
       </div>
-      <div id="reservation-status" class="form-status" hidden></div>
-      <div id="upcoming-rentals-shell" class="reservation-shell"></div>
-      <div id="history-rentals-shell" class="reservation-shell"></div>
-    </section>
-
-    <section class="card">
-      <div class="profile-section-header">
-        <h3>Booking Requests</h3>
-        <p>Review incoming requests for your tools and manage pending or confirmed bookings.</p>
-      </div>
-      <div id="booking-requests-shell" class="booking-requests-shell"></div>
     </section>
   `;
 }

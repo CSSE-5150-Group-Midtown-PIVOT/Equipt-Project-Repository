@@ -70,6 +70,54 @@ main {
   margin: 0;
 }
 
+.login-hero {
+  --login-hero-image: url('../assets/login-hero.jpg');
+  position: relative;
+  width: 100%;
+  min-height: calc(100vh - 140px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.login-hero__bg {
+  position: absolute;
+  inset: 0;
+  background-image: var(--login-hero-image);
+  background-size: cover;
+  background-position: center center;
+  filter: saturate(1.05) brightness(0.8);
+  transform: scale(1.02);
+}
+
+.login-hero__overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top left, rgba(213, 135, 5, 0.22), transparent 34%),
+    linear-gradient(180deg, rgba(7, 14, 28, 0.38) 0%, rgba(7, 14, 28, 0.7) 62%, rgba(7, 14, 28, 0.82) 100%);
+}
+
+.login-card {
+  position: relative;
+  z-index: 2;
+  width: min(500px, 100%);
+  margin: 0;
+  background: rgba(10, 16, 28, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 26px 80px rgba(2, 12, 28, 0.5);
+}
+
+.login-card__subtext {
+  margin: 0 0 1rem;
+  color: rgba(226, 232, 240, 0.9);
+  line-height: 1.55;
+}
+
 .login-form {
   display: flex;
   flex-direction: column;
@@ -123,15 +171,25 @@ main {
 }
 
 .registration-visual {
+  --registration-hero-image: url('../assets/register-hero.jpg');
+  --registration-overlay-start: rgba(15, 42, 74, 0.48);
+  --registration-overlay-mid: rgba(15, 42, 74, 0.34);
+  --registration-overlay-end: rgba(47, 111, 62, 0.26);
   position: relative;
   min-height: 520px;
   border-radius: 24px;
   overflow: hidden;
-  background: linear-gradient(135deg, #0f2a4a 0%, #1d4ed8 45%, #2f6f3e 100%);
+  background:
+    linear-gradient(160deg, var(--registration-overlay-start) 0%, var(--registration-overlay-mid) 52%, var(--registration-overlay-end) 100%),
+    var(--registration-hero-image),
+    linear-gradient(135deg, #0f2a4a 0%, #1d4ed8 45%, #2f6f3e 100%);
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
   padding: 1.5rem;
   display: flex;
   align-items: flex-end;
-  justify-content: center;
+  justify-content: flex-start;
   box-shadow: 0 20px 45px rgba(15, 42, 74, 0.16);
 }
 
@@ -139,46 +197,44 @@ main {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at top left, rgba(250, 204, 21, 0.25), transparent 35%);
+  background:
+    radial-gradient(circle at top left, rgba(250, 204, 21, 0.14), transparent 40%),
+    linear-gradient(to top, rgba(5, 15, 30, 0.34), rgba(5, 15, 30, 0.06));
+}
+
+.registration-visual__copy {
+  position: relative;
+  z-index: 2;
+  max-width: 430px;
+  padding: 1rem;
+  border-radius: 16px;
+  background: rgba(5, 15, 30, 0.42);
+  backdrop-filter: blur(3px);
 }
 
 .registration-visual__badge {
-  position: absolute;
-  top: 1.25rem;
-  left: 1.25rem;
-  z-index: 2;
-  background: rgba(255, 255, 255, 0.16);
-  color: white;
-  padding: 0.6rem 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.18);
+  color: #f8fafc;
+  padding: 0.5rem 0.8rem;
   border-radius: 999px;
   font-weight: 700;
-  backdrop-filter: blur(6px);
+  font-size: 0.85rem;
+  margin-bottom: 0.9rem;
 }
 
-.registration-visual__tool {
-  position: absolute;
-  font-size: 3rem;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.2));
+.registration-visual__copy h3 {
+  margin: 0 0 0.45rem;
+  font-size: clamp(1.5rem, 2.1vw, 2rem);
+  line-height: 1.2;
+  color: #ffffff;
 }
 
-.registration-visual__tool--drill {
-  left: 10%;
-  bottom: 18%;
-}
-
-.registration-visual__tool--saw {
-  left: 34%;
-  bottom: 22%;
-}
-
-.registration-visual__tool--hammer {
-  right: 16%;
-  bottom: 20%;
-}
-
-.registration-visual__tool--ladder {
-  right: 8%;
-  top: 24%;
+.registration-visual__copy p {
+  margin: 0;
+  color: rgba(248, 250, 252, 0.9);
+  line-height: 1.6;
 }
 
 .registration-card {
@@ -196,7 +252,7 @@ main {
 
 .registration-card h2 {
   margin: 0 0 0.5rem;
-  color: #0f2a4a;
+  color: #d58705;
   font-size: 2rem;
 }
 
@@ -328,6 +384,11 @@ main {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.filter-actions--bottom {
+  justify-content: flex-end;
+  padding-top: 0.25rem;
 }
 
 .filter-section {
@@ -623,6 +684,10 @@ main {
   line-height: 1.5;
 }
 
+.catalog-result-card__description {
+  white-space: pre-line;
+}
+
 .catalog-result-card__meta {
   display: flex;
   flex-wrap: wrap;
@@ -638,6 +703,16 @@ main {
   background: #eef8ef;
   color: #2f6f3e;
   font-size: 0.85rem;
+}
+
+.catalog-result-card__availability--available {
+  background: #eef8ef;
+  color: #2f6f3e;
+}
+
+.catalog-result-card__availability--booked {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 /* Availability calendar styles for catalog cards */
@@ -840,6 +915,8 @@ main {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .booking-request-card {
@@ -848,6 +925,9 @@ main {
   border-radius: 12px;
   background: #f8fbff;
   box-shadow: 0 8px 18px rgba(15, 42, 74, 0.05);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .booking-request-card h4 {
@@ -1347,7 +1427,7 @@ button.secondary {
 
 .image-preview-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 132px));
   gap: 0.8rem;
   margin-top: 0.75rem;
 }
@@ -1358,12 +1438,14 @@ button.secondary {
   overflow: hidden;
   background: #ffffff;
   box-shadow: 0 8px 20px rgba(15, 42, 74, 0.08);
+  width: 132px;
 }
 
 .image-preview-card img {
   display: block;
   width: 100%;
-  height: 140px;
+  aspect-ratio: 1 / 1;
+  height: auto;
   object-fit: cover;
 }
 
@@ -1377,7 +1459,8 @@ button.secondary {
 }
 
 .image-remove-btn {
-  width: 100%;
+  display: block;
+  width: calc(100% - 1.4rem);
   margin: 0.55rem 0.7rem 0.7rem;
   padding: 0.45rem 0.7rem;
   border-radius: 999px;
@@ -1411,6 +1494,55 @@ button.secondary {
 .listing-actions .primary {
   background: #d58705;
   color: #0f172a;
+}
+
+.profile-hero {
+  --profile-hero-image: url('../assets/profile-hero.jpg');
+  position: relative;
+  width: 100%;
+  min-height: calc(100vh - 130px);
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.profile-hero__bg {
+  position: absolute;
+  inset: 0;
+  background-image: var(--profile-hero-image);
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  filter: saturate(1.06) brightness(0.78);
+  transform: scale(1.02);
+}
+
+.profile-hero__overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 14% 8%, rgba(213, 135, 5, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(7, 14, 28, 0.32) 0%, rgba(7, 14, 28, 0.76) 72%, rgba(7, 14, 28, 0.86) 100%);
+}
+
+.profile-hero__content {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 1rem;
+  width: min(1000px, 100%);
+  margin: 0 auto;
+  padding: 1.25rem;
+  box-sizing: border-box;
+}
+
+.profile-hero__content .card {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  background: rgba(10, 16, 28, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+  box-sizing: border-box;
 }
 
 .profile-section-header {
@@ -1551,6 +1683,8 @@ button.secondary {
 .my-rentals-shell {
   display: grid;
   gap: 0.9rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .listing-card {
@@ -1559,6 +1693,9 @@ button.secondary {
   padding: 1rem;
   background: #f8fbff;
   box-shadow: 0 8px 18px rgba(15, 42, 74, 0.06);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .listing-card__body {
@@ -1733,6 +1870,8 @@ button.secondary {
   display: grid;
   gap: 0.85rem;
   margin-top: 0.75rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .reservation-card {
@@ -1743,6 +1882,9 @@ button.secondary {
   padding: 1rem;
   background: #f8fbff;
   box-shadow: 0 8px 20px rgba(15, 42, 74, 0.06);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .reservation-card--history {
@@ -1777,6 +1919,7 @@ button.secondary {
 
 .reservation-card__details {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -2112,7 +2255,8 @@ button.secondary {
   }
 
   .registration-visual {
-    min-height: 280px;
+    min-height: 340px;
+    background-position: center 26%;
   }
 
   .form-grid {
@@ -2130,6 +2274,30 @@ button.secondary {
     padding: 1rem;
   }
 
+  .profile-hero {
+    border-radius: 18px;
+    min-height: auto;
+  }
+
+  .profile-hero__content {
+    padding: 0.85rem;
+  }
+
+  .profile-hero__bg {
+    background-position: center 12%;
+  }
+
+  .login-hero {
+    min-height: auto;
+    padding: 1rem;
+    border-radius: 18px;
+  }
+
+  .login-card {
+    width: 100%;
+    padding: 1.25rem;
+  }
+
   .registration-card {
     padding: 1.25rem;
   }
@@ -2142,8 +2310,14 @@ button.secondary {
     flex-direction: column;
   }
 
-  .registration-visual__tool {
-    font-size: 2.2rem;
+  .registration-visual__copy {
+    max-width: none;
+    padding: 0.8rem;
+  }
+
+  .registration-visual {
+    min-height: 300px;
+    background-position: center 22%;
   }
 
   .home-hero {

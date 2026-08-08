@@ -62,8 +62,17 @@ function getFriendlyAuthError(error) {
       return 'This phone number is already linked to another account. Try signing in or use a different phone number.';
     case 'auth/operation-not-allowed':
       return 'Phone authentication is not enabled for this Firebase project.';
+    case 'auth/unauthorized-domain':
+      return 'This site domain is not authorized for Firebase phone verification. Add it under Firebase Auth > Settings > Authorized domains.';
+    case 'auth/missing-recaptcha-container':
+      return 'Phone verification setup is incomplete on this page. Refresh and try again.';
     case 'auth/billing-not-enabled':
       return 'Phone SMS verification is unavailable until billing is enabled in Firebase.';
+    case 'auth/internal-error':
+      if (window.location.protocol === 'file:') {
+        return 'Phone verification CAPTCHA cannot run from a file URL. Start the app from http://localhost (or an authorized HTTPS domain) and try again.';
+      }
+      return 'Phone verification could not initialize CAPTCHA. Refresh and try again.';
     case 'auth/account-exists-with-different-credential':
       return 'An account already exists with this phone number using a different sign-in method. Try signing in with that method, then link additional sign-in methods in your profile settings.';
     case 'firestore/permission-denied':
@@ -86,10 +95,13 @@ function getStoredAuthMessage() {
   return message || '';
 }
 
-function initializeLoginPasswordToggle() {
-  const toggleButton = document.getElementById('login-password-toggle');
-  const passwordInput = document.getElementById('password');
+function getStoredAuthSuccessMessage() {
+  const message = sessionStorage.getItem('authSuccessMessage');
+  sessionStorage.removeItem('authSuccessMessage');
+  return message || '';
+}
 
+function initializePasswordToggle(toggleButton, passwordInput) {
   if (!toggleButton || !passwordInput) {
     return;
   }
@@ -116,6 +128,27 @@ function initializeLoginPasswordToggle() {
   });
 }
 
+function initializeLoginPasswordToggle() {
+  const toggleButton = document.getElementById('login-password-toggle');
+  const passwordInput = document.getElementById('password');
+
+  if (!toggleButton || !passwordInput) {
+    return;
+  }
+
+  initializePasswordToggle(toggleButton, passwordInput);
+}
+
+function initializeRegistrationPasswordToggles() {
+  const registrationPasswordToggle = document.getElementById('registration-password-toggle');
+  const registrationPasswordInput = document.getElementById('registration-password');
+  const registrationConfirmPasswordToggle = document.getElementById('registration-confirm-password-toggle');
+  const registrationConfirmPasswordInput = document.getElementById('registration-confirm-password');
+
+  initializePasswordToggle(registrationPasswordToggle, registrationPasswordInput);
+  initializePasswordToggle(registrationConfirmPasswordToggle, registrationConfirmPasswordInput);
+}
+
 async function showHomePage() {
   const currentUser = authService.getCurrentUser();
   let userRole = '';
@@ -139,12 +172,16 @@ function showLoginPage() {
 
 function showRegistrationPage() {
   renderView(app, renderRegistrationView());
+  initializeRegistrationPasswordToggles();
 
   const registrationForm = document.getElementById('registration-form');
   const sendPhoneCodeButton = document.getElementById('send-phone-code');
   const verifyPhoneCodeButton = document.getElementById('verify-phone-code');
   const phoneVerificationStatus = document.getElementById('phone-verification-status');
   const phoneCodeInput = document.getElementById('phone-code');
+  const registrationPasswordError = document.getElementById('registration-password-error');
+  const registrationPasswordInput = registrationForm?.querySelector('input[name="password"]');
+  const registrationConfirmPasswordInput = registrationForm?.querySelector('input[name="confirmPassword"]');
 
   let phoneVerificationId = null;
   let phoneCredential = null;
@@ -160,6 +197,18 @@ function showRegistrationPage() {
     phoneVerificationStatus.classList.toggle('form-error', isError);
     phoneVerificationStatus.classList.toggle('form-success', !isError);
   };
+
+  const setRegistrationPasswordError = (message) => {
+    if (!registrationPasswordError) {
+      return;
+    }
+
+    registrationPasswordError.textContent = message || '';
+    registrationPasswordError.hidden = !message;
+  };
+
+  registrationPasswordInput?.addEventListener('input', () => setRegistrationPasswordError(''));
+  registrationConfirmPasswordInput?.addEventListener('input', () => setRegistrationPasswordError(''));
 
   sendPhoneCodeButton?.addEventListener('click', async () => {
     const phone = document.getElementById('phone')?.value?.trim() || '';
@@ -209,6 +258,7 @@ function showRegistrationPage() {
 
   registrationForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    setRegistrationPasswordError('');
 
     const formData = new FormData(registrationForm);
     const password = formData.get('password');
@@ -233,12 +283,12 @@ function showRegistrationPage() {
     }
 
     if (unmetRequirements.length > 0) {
-      alert(`Password must include ${unmetRequirements.join(', ')}.`);
+      setRegistrationPasswordError(`Password must include ${unmetRequirements.join(', ')}.`);
       return;
     }
 
     if (password !== confirmPassword) {
-      alert('Passwords do not match.');
+      setRegistrationPasswordError('Passwords do not match.');
       return;
     }
 
@@ -255,12 +305,11 @@ function showRegistrationPage() {
         role: formData.get('role')
       }, phoneCredential);
 
-      sessionStorage.setItem('redirectAfterAuth', 'list-tool');
-      sessionStorage.setItem('authPromptMessage', 'Sign in or create an account to list your tools.');
+      sessionStorage.setItem('authSuccessMessage', 'Account created successfully. Please log in to continue.');
       window.location.hash = 'login-form';
     } catch (error) {
       console.error('Registration failed:', error);
-      alert(getFriendlyAuthError(error));
+      setRegistrationPasswordError(getFriendlyAuthError(error));
     }
   });
 
@@ -277,6 +326,7 @@ function showLoginFormPage() {
   const loginError = document.getElementById('login-error');
   const loginSuccess = document.getElementById('login-success');
   const promptMessage = getStoredAuthMessage();
+  const successMessage = getStoredAuthSuccessMessage();
 
   const setLoginError = (message) => {
     if (loginError) {
@@ -292,7 +342,9 @@ function showLoginFormPage() {
     }
   };
 
-  if (promptMessage) {
+  if (successMessage) {
+    setLoginSuccess(successMessage);
+  } else if (promptMessage) {
     setLoginSuccess(promptMessage);
   }
 
@@ -312,10 +364,10 @@ function showLoginFormPage() {
 
     try {
       await authService.login(email, password);
-      const redirectTarget = getStoredAuthRedirect() || 'tool-catalog';
+      getStoredAuthRedirect();
       setLoginSuccess('Successful login: welcome to Equipt!');
       window.setTimeout(() => {
-        window.location.hash = redirectTarget;
+        window.location.hash = 'home';
       }, 800);
     } catch (error) {
       console.error('Login failed:', error);
@@ -355,6 +407,19 @@ function showListToolPage() {
   const subcategoryGroups = document.querySelectorAll('#list-category-checklist .subcategory-group');
   const categoryPrompt = document.querySelector('#list-category-checklist .category-prompt');
   const requiredFields = ['item-name', 'item-description', 'item-location', 'condition', 'rental-price'];
+  const maxListingImageBytes = 8 * 1024 * 1024;
+  const supportedImageTypes = new Set([
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/avif',
+    'image/svg+xml',
+    'image/heic',
+    'image/heif'
+  ]);
+  const supportedImageExtensions = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg', 'heic', 'heif']);
   let selectedImages = [];
 
   const setStatus = (message, isError = false) => {
@@ -402,6 +467,19 @@ function showListToolPage() {
     publishButton.disabled = !(hasRequiredValues && hasPrice && hasImages && hasMainCategory && hasSubcategory);
   };
 
+  const buildPreviewEntry = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve({ file, url: reader.result });
+      };
+      reader.onerror = () => {
+        reject(new Error(`Unable to preview ${file?.name || 'selected image'}.`));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   const renderPreviews = () => {
     if (!previewList) {
       return;
@@ -428,7 +506,6 @@ function showListToolPage() {
       removeButton.className = 'image-remove-btn';
       removeButton.textContent = 'Remove';
       removeButton.addEventListener('click', () => {
-        URL.revokeObjectURL(entry.url);
         selectedImages.splice(index, 1);
         renderPreviews();
         updatePublishState();
@@ -438,12 +515,70 @@ function showListToolPage() {
     });
   };
 
-  fileInput?.addEventListener('change', (event) => {
+  fileInput?.addEventListener('change', async (event) => {
     const files = Array.from(event.target.files || []);
-    selectedImages = [...selectedImages, ...files.map((file) => ({ file, url: URL.createObjectURL(file) }))];
-    renderPreviews();
-    updatePublishState();
-    event.target.value = '';
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const rejectedType = [];
+    const rejectedSize = [];
+
+    const getFileExtension = (fileName = '') => {
+      const parts = String(fileName || '').toLowerCase().split('.');
+      return parts.length > 1 ? parts.pop() : '';
+    };
+
+    const imageFiles = files.filter((file) => {
+      const normalizedType = String(file.type || '').toLowerCase();
+      const extension = getFileExtension(file.name || '');
+      const isSupportedType = supportedImageTypes.has(normalizedType) || supportedImageExtensions.has(extension);
+      const isWithinSize = Number(file.size || 0) <= maxListingImageBytes;
+
+      if (!isSupportedType) {
+        rejectedType.push(file.name || 'Unnamed file');
+      }
+
+      if (!isWithinSize) {
+        rejectedSize.push(file.name || 'Unnamed file');
+      }
+
+      return isSupportedType && isWithinSize;
+    });
+
+    try {
+      const results = await Promise.allSettled(imageFiles.map((file) => buildPreviewEntry(file)));
+      const newEntries = results.filter((result) => result.status === 'fulfilled').map((result) => result.value);
+      const failedPreviewCount = results.filter((result) => result.status === 'rejected').length;
+
+      selectedImages = [...selectedImages, ...newEntries];
+      renderPreviews();
+      updatePublishState();
+
+      if (rejectedType.length > 0 || rejectedSize.length > 0 || failedPreviewCount > 0) {
+        const messages = [];
+        if (rejectedType.length > 0) {
+          messages.push('Unsupported format (use JPG, PNG, WEBP, GIF, AVIF, SVG, or HEIC/HEIF).');
+        }
+        if (rejectedSize.length > 0) {
+          messages.push('Some files were larger than 8 MB.');
+        }
+        if (failedPreviewCount > 0) {
+          messages.push('Some images could not be previewed in this browser.');
+        }
+        setStatus(messages.join(' '), true);
+      } else if (newEntries.length > 0) {
+        setStatus('', false);
+      } else {
+        setStatus('No compatible images were selected for preview.', true);
+      }
+    } catch (error) {
+      console.error('Unable to generate image previews:', error);
+      setStatus('We could not preview the selected files. Try JPG/PNG/WEBP under 8 MB each.', true);
+    } finally {
+      event.target.value = '';
+    }
   });
 
   categorySelect?.addEventListener('change', () => {
@@ -491,11 +626,11 @@ function showListToolPage() {
     }
 
     try {
-      setStatus('Publishing your listing to Firestore…', false);
+      setStatus('', false);
       const photos = await readImageFilesAsDataUrls(selectedImages.map((entry) => entry.file));
       const selectedSubcategories = Array.from(document.querySelectorAll('#list-category-checklist input[type="checkbox"]:checked')).map((checkbox) => checkbox.value);
       const nextDailyRate = normalizeDailyRate(document.getElementById('rental-price')?.value || 0);
-      const availabilityValue = document.getElementById('listing-availability')?.value || 'Available now';
+      const availabilityValue = 'Available now';
       const profile = await authService.getCurrentUserProfile();
       const ownerRole = String(profile?.role || 'Lender').trim();
 
@@ -549,11 +684,14 @@ function showListToolPage() {
         });
       }
 
-      setStatus('Your listing is now live in Firestore.', false);
       form.reset();
       selectedImages = [];
       renderPreviews();
       updatePublishState();
+      setStatus('Success: listing published.', false);
+      window.setTimeout(() => {
+        window.location.hash = 'home';
+      }, 1200);
     } catch (error) {
       console.error('Unable to publish your listing:', error);
       setStatus('We could not publish your listing. Please try again.', true);
@@ -652,26 +790,14 @@ function getRentalStatusClass(status = '') {
 
 function getAllowedRentalStatusTransitions(status = '') {
   const normalizedStatus = normalizeRentalStatus(status);
+  const transitions = [
+    { label: 'Mark as Confirmed', nextStatus: 'confirmed' },
+    { label: 'Mark as Active', nextStatus: 'active' },
+    { label: 'Mark as Returned', nextStatus: 'returned' },
+    { label: 'Cancel Rental', nextStatus: 'cancelled' }
+  ];
 
-  if (!normalizedStatus || normalizedStatus === 'returned' || normalizedStatus === 'cancelled') {
-    return [];
-  }
-
-  if (normalizedStatus === 'confirmed') {
-    return [
-      { label: 'Mark as Active', nextStatus: 'active' },
-      { label: 'Cancel Rental', nextStatus: 'cancelled' }
-    ];
-  }
-
-  if (normalizedStatus === 'active') {
-    return [
-      { label: 'Mark as Returned', nextStatus: 'returned' },
-      { label: 'Cancel Rental', nextStatus: 'cancelled' }
-    ];
-  }
-
-  return [];
+  return transitions.filter((transition) => transition.nextStatus !== normalizedStatus);
 }
 
 async function readImageFilesAsDataUrls(files = []) {
@@ -898,6 +1024,9 @@ async function loadLenderBookingRequests(currentUser) {
       const canReject = ['pending', 'pending request', 'requested'].includes(normalizedStatus);
       const canCancel = ['confirmed', 'booked', 'accepted'].includes(normalizedStatus) && isFutureBooking;
       const cardClass = bucket === 'cancelled' ? 'booking-request-card booking-request-card--cancelled' : 'booking-request-card';
+      const cancelButtonMarkup = canCancel
+        ? `<button type="button" class="secondary reservation-cancel-btn" data-action="cancel-booking" data-reservation-id="${escapeHtml(reservation.id)}">Cancel Reservation</button>`
+        : '';
 
       return `
         <article class="${cardClass}" data-reservation-id="${escapeHtml(reservation.id)}">
@@ -908,10 +1037,10 @@ async function loadLenderBookingRequests(currentUser) {
               <p><strong>Date:</strong> ${escapeHtml(bookingDateLabel)}</p>
               <p><strong>Status:</strong> ${escapeHtml(bookingState || 'Pending')}</p>
               ${reservation.reason ? `<p><strong>Reason:</strong> ${escapeHtml(reservation.reason)}</p>` : ''}
+              ${cancelButtonMarkup}
             </div>
             <div class="booking-request-card__actions">
               ${canReject ? `<button type="button" class="secondary" data-action="reject-booking" data-reservation-id="${escapeHtml(reservation.id)}">Reject</button>` : ''}
-              ${canCancel ? `<button type="button" class="primary" data-action="cancel-booking" data-reservation-id="${escapeHtml(reservation.id)}">Cancel</button>` : ''}
             </div>
           </div>
         </article>
@@ -1024,20 +1153,98 @@ async function loadLenderBookingRequests(currentUser) {
           return;
         }
 
-        const confirmed = window.confirm('Are you sure you want to cancel this booking?');
-        if (!confirmed) {
-          return;
+        const summary = buildReservationCancellationSummary(reservation);
+        const refundPolicy = getRefundPolicy(reservation);
+        const listing = ownerListings.find((entry) => entry.id === (reservation.listingId || reservation.listing?.id || reservation.listing_id)) || {};
+        const photo = getReservationPhoto({
+          ...reservation,
+          toolPhotos: listing.photos,
+          listing
+        });
+        const toolName = reservation.toolName || listing.toolName || 'Tool reservation';
+        const status = String(reservation.status || '').trim().toLowerCase();
+        const showRefundLine = status === 'cancelled' || status === 'canceled';
+        const reservationDates = reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
+        const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
+        const displayDates = reservationDates
+          ? `${formatReservationDateTime(reservationDates)}${reservationEndDate && reservationEndDate !== reservationDates ? ` – ${formatReservationDateTime(reservationEndDate)}` : ''}`
+          : 'Not provided';
+        const modalMarkup = `
+          <div class="reservation-modal-backdrop" role="dialog" aria-modal="true" aria-label="Cancel reservation confirmation">
+            <div class="reservation-modal">
+              <h3>Cancel Reservation</h3>
+              <div class="reservation-modal__body">
+                <div class="reservation-modal__image">
+                  ${photo ? `<img src="${escapeHtml(photo)}" alt="${escapeHtml(toolName)}" />` : '<div class="reservation-modal__placeholder">No photo</div>'}
+                </div>
+                <div class="reservation-modal__content">
+                  <p><strong>${escapeHtml(toolName)}</strong></p>
+                  <p><strong>Selected rental dates:</strong> ${escapeHtml(displayDates)}</p>
+                  <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
+                  ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
+                  <label class="reservation-modal__field" for="lender-cancellation-reason">
+                    <span>Reason</span>
+                    <select id="lender-cancellation-reason">
+                      <option value="Tool No Longer Available">Tool No Longer Available</option>
+                      <option value="Plans Changed">Plans Changed</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div class="reservation-modal__actions">
+                <button type="button" class="secondary" data-action="keep-reservation">Keep Reservation</button>
+                <button type="button" class="secondary" data-action="dismiss-cancel-modal">Close</button>
+                <button type="button" class="primary reservation-modal__confirm" data-action="confirm-cancellation">Confirm Cancellation</button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const modalRoot = document.createElement('div');
+        modalRoot.innerHTML = modalMarkup;
+        const modalElement = modalRoot.firstElementChild;
+        if (modalElement) {
+          document.body.appendChild(modalElement);
         }
 
-        const reason = window.prompt('Optional reason for cancellation:', '');
-        await updateBookingState(reservation, 'Cancelled', reason || '', {
-          cancelledBy: 'lender',
-          cancellationBy: currentUser.uid,
-          cancellationReason: reason || ''
+        const closeModal = () => {
+          modalElement?.remove();
+          document.removeEventListener('keydown', handleEscapeKey);
+        };
+
+        const handleEscapeKey = (event) => {
+          if (event.key === 'Escape') {
+            closeModal();
+          }
+        };
+
+        document.addEventListener('keydown', handleEscapeKey);
+        modalElement?.addEventListener('click', (event) => {
+          if (event.target === modalElement) {
+            closeModal();
+          }
         });
-        await loadLenderBookingRequests(currentUser);
-        await loadMyListings(currentUser);
-        await loadCatalogListings();
+
+        modalElement?.querySelector('[data-action="keep-reservation"]')?.addEventListener('click', () => {
+          closeModal();
+        });
+        modalElement?.querySelector('[data-action="dismiss-cancel-modal"]')?.addEventListener('click', () => {
+          closeModal();
+        });
+
+        modalElement?.querySelector('[data-action="confirm-cancellation"]')?.addEventListener('click', async () => {
+          const reason = modalElement?.querySelector('#lender-cancellation-reason')?.value || 'Other';
+          await updateBookingState(reservation, 'Cancelled', reason || '', {
+            cancelledBy: 'lender',
+            cancellationBy: currentUser.uid,
+            cancellationReason: reason || ''
+          });
+          closeModal();
+          await loadLenderBookingRequests(currentUser);
+          await loadMyListings(currentUser);
+          await loadCatalogListings();
+        });
       });
     });
   } catch (error) {
@@ -1159,7 +1366,7 @@ async function loadMyListings(currentUser) {
       const transitionMarkup = allowedTransitions.length > 0
         ? `<div class="rental-status-actions">${allowedTransitions.map((transition) => `<button type="button" class="secondary rental-status-action" data-action="update-rental-status" data-current-status="${escapeHtml(rentalStatus)}" data-listing-id="${escapeHtml(listing.id)}" data-reservation-id="${escapeHtml(reservation?.id || listing.reservationId || listing.bookingId || '')}" data-next-status="${escapeHtml(transition.nextStatus)}">${escapeHtml(transition.label)}</button>`).join('')}</div>`
         : '';
-      const contactMarkup = rentalStatus === 'confirmed' && reservation
+      const contactMarkup = reservation && !['cancelled'].includes(rentalStatus)
         ? `
           <div class="rental-contact-card">
             <p><strong>Renter contact:</strong> ${escapeHtml(renterName)}</p>
@@ -1374,8 +1581,10 @@ async function loadMyListings(currentUser) {
         const nextStatus = button.getAttribute('data-next-status');
         const currentStatus = button.getAttribute('data-current-status');
         const listing = ownerListings.find((entry) => entry.id === listingId);
+        const reservationsForListing = reservationsByListingId.get(listingId) || [];
+        const reservation = reservationsForListing.find((entry) => entry.id === reservationId);
 
-        if (!listing || !nextStatus || !reservationId) {
+        if (!listing || !nextStatus || !reservationId || !reservation) {
           return;
         }
 
@@ -1388,17 +1597,34 @@ async function loadMyListings(currentUser) {
         }
 
         try {
+          const normalizedNextStatus = normalizeRentalStatus(nextStatus);
+          const reservationDateKeys = getReservationDateRangeKeys(reservation);
+          const otherActiveReservations = reservationsForListing.filter((entry) => entry.id !== reservation.id && isReservationActive(entry));
+          const otherReservedDateKeys = otherActiveReservations.flatMap((entry) => getReservationDateRangeKeys(entry));
+          const shouldReserveDates = !['cancelled', 'returned'].includes(normalizedNextStatus);
+          const nextReservedDates = Array.from(new Set([
+            ...otherReservedDateKeys,
+            ...(shouldReserveDates ? reservationDateKeys : [])
+          ].filter(Boolean)));
+          const hasRemainingReservations = nextReservedDates.length > 0;
+          const timestamp = new Date().toISOString();
+
           await databaseService.updateRecord('reservations', reservationId, {
             reservationStatus: nextStatus,
             status: nextStatus,
-            updatedAt: new Date().toISOString()
+            updatedAt: timestamp
           });
           await databaseService.updateRecord('listings', listing.id, {
+            availability: hasRemainingReservations ? 'Booked' : 'Available now',
             reservationStatus: nextStatus,
             status: nextStatus,
-            updatedAt: new Date().toISOString()
+            reservedDates: nextReservedDates,
+            bookingId: hasRemainingReservations ? (listing.bookingId || reservation.id || '') : '',
+            reservationId: hasRemainingReservations ? (listing.reservationId || reservation.id || '') : '',
+            updatedAt: timestamp
           });
           await loadMyListings(currentUser);
+          await loadCatalogListings();
         } catch (error) {
           console.error('Unable to update rental status:', error);
           window.alert('We could not update the rental status right now.');
@@ -1466,13 +1692,15 @@ function isPublishedListing(listing = {}) {
 function getCatalogFilterState() {
   const searchInput = document.getElementById('tool-search');
   const locationInput = document.getElementById('tool-location');
+  const optionalZipInput = document.getElementById('zip-code-input');
   const categorySelect = document.getElementById('main-category-select');
   const selectedSubcategories = Array.from(document.querySelectorAll('#category-checklist .subcategory-group.visible input[type="checkbox"]:checked')).map((checkbox) => checkbox.value.toLowerCase());
   const selectedConditions = Array.from(document.querySelectorAll('#optional-filters input[name="condition"]:checked')).map((checkbox) => checkbox.value);
+  const locationValue = optionalZipInput?.value?.trim() || locationInput?.value?.trim() || '';
 
   return {
     searchText: searchInput?.value?.trim().toLowerCase() || '',
-    location: locationInput?.value?.trim() || '',
+    location: locationValue,
     category: categorySelect?.value || '',
     selectedSubcategories,
     selectedConditions,
@@ -1548,14 +1776,6 @@ function matchesCatalogFilters(listing = {}, filters = {}) {
     return false;
   }
 
-  if (rentalStart && listing.availability && String(listing.availability).toLowerCase() === 'reserved') {
-    return false;
-  }
-
-  if (rentalEnd && listing.availability && String(listing.availability).toLowerCase() === 'pending pickup') {
-    return false;
-  }
-
   return true;
 }
 
@@ -1565,36 +1785,7 @@ function buildCalendarDays(listing = {}, reservationRecords = [], monthDate = ne
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfWeek = new Date(year, month, 1).getDay();
   const todayKey = getDateKey(new Date());
-  const reservedSet = new Set();
-
-  const addDateKey = (d) => {
-    if (!d) return;
-    if (typeof d === 'string') {
-      // normalize to YYYY-MM-DD
-      const key = d.includes('T') ? d.slice(0, 10) : d;
-      reservedSet.add(key);
-      return;
-    }
-    if (d instanceof Date) {
-      reservedSet.add(d.toISOString().slice(0, 10));
-      return;
-    }
-    if (Array.isArray(d)) {
-      d.forEach(addDateKey);
-    }
-  };
-
-  // gather reservation dates from records
-  reservationRecords.forEach((rec) => {
-    const normalizedStatus = String(rec.status || rec.reservationStatus || '').trim().toLowerCase();
-    if (normalizedStatus === 'cancelled') {
-      return;
-    }
-    addDateKey(rec.startDate || rec.bookedDate || rec.date || rec.bookedAt || rec.start || rec.reservedDates || rec.bookedDates || rec.dates || rec.endDate || rec.end);
-  });
-
-  // listing-level reservedDates
-  addDateKey(listing.reservedDates || listing.reservedDate || listing.bookedDates);
+  const reservedSet = new Set(getReservedDateKeys(listing, reservationRecords));
 
   const monthDays = [];
   const leadingBlanks = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
@@ -1656,6 +1847,15 @@ function getReservedDateKeys(listing = {}, reservationRecords = []) {
   const reservedDates = new Set();
 
   const addValue = (value) => {
+    if (!value) {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(addValue);
+      return;
+    }
+
     const dateKey = getDateKey(value);
     if (dateKey) {
       reservedDates.add(dateKey);
@@ -1665,6 +1865,16 @@ function getReservedDateKeys(listing = {}, reservationRecords = []) {
   addValue(listing.reservedDates || listing.reservedDate || listing.bookedDates);
 
   reservationRecords.forEach((record) => {
+    if (!isReservationActive(record)) {
+      return;
+    }
+
+    const reservationDateRange = getReservationDateRangeKeys(record);
+    if (reservationDateRange.length > 0) {
+      addValue(reservationDateRange);
+      return;
+    }
+
     addValue(record.bookedDate || record.date || record.startDate || record.start || record.endDate || record.end || record.reservedDates || record.bookedDates || record.dates);
   });
 
@@ -1734,6 +1944,29 @@ function formatBookingDateLabel(dateKey = '') {
   return parsedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function getDateRangeKeys(startDateKey = '', endDateKey = '') {
+  if (!startDateKey) {
+    return [];
+  }
+
+  const normalizedEndDateKey = endDateKey || startDateKey;
+  const start = new Date(`${startDateKey}T00:00:00`);
+  const end = new Date(`${normalizedEndDateKey}T00:00:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return [startDateKey];
+  }
+
+  const rangeKeys = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    rangeKeys.push(getDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return rangeKeys;
+}
+
 async function loadCatalogListings() {
   const results = document.querySelector('.catalog-results');
   const feedback = document.getElementById('catalog-feedback');
@@ -1751,13 +1984,10 @@ async function loadCatalogListings() {
     const allReservations = await databaseService.readRecords('reservations');
     const publishedListings = (allListings || []).filter(isPublishedListing);
     const filters = getCatalogFilterState();
-    const visibleListings = publishedListings.filter((listing) => matchesCatalogFilters(listing, filters));
-
-    if (!visibleListings.length) {
-      results.innerHTML = '<div class="catalog-results__empty">No tools found</div>';
-      feedback.textContent = 'No tools found';
-      return;
-    }
+    const hasDateFilter = Boolean(filters.rentalStart || filters.rentalEnd);
+    const selectedStartDateKey = filters.rentalStart || filters.rentalEnd || '';
+    const selectedEndDateKey = filters.rentalEnd || filters.rentalStart || '';
+    const selectedFilterDateKeys = getDateRangeKeys(selectedStartDateKey, selectedEndDateKey);
 
     // Build a lookup of reservations by listing id (may be multiple reservations per listing)
     const reservationLookup = new Map();
@@ -1768,6 +1998,31 @@ async function loadCatalogListings() {
       arr.push(reservation);
       reservationLookup.set(lid, arr);
     });
+
+    const visibleListings = publishedListings.filter((listing) => {
+      if (!matchesCatalogFilters(listing, filters)) {
+        return false;
+      }
+
+      if (!hasDateFilter) {
+        return true;
+      }
+
+      const reservationsForListing = reservationLookup.get(listing.id) || [];
+      const listingReservedDateKeys = getReservedDateKeys(listing, []);
+      const activeReservationDateKeys = reservationsForListing
+        .filter((reservation) => isReservationActive(reservation))
+        .flatMap((reservation) => getReservationDateRangeKeys(reservation));
+      const reservedDateKeys = new Set([...listingReservedDateKeys, ...activeReservationDateKeys]);
+
+      return !selectedFilterDateKeys.some((dateKey) => reservedDateKeys.has(dateKey));
+    });
+
+    if (!visibleListings.length) {
+      results.innerHTML = '<div class="catalog-results__empty">No tools found</div>';
+      feedback.textContent = 'No tools found';
+      return;
+    }
 
     // Cache current catalog data so calendar nav can re-render per-card without reloading from server
     window.__catalogState = {
@@ -1782,9 +2037,9 @@ async function loadCatalogListings() {
       const description = listing.itemDescription || 'No description provided yet.';
       const categoryLabel = listing.itemCategory || listing.category || 'Uncategorized';
       const dailyRate = Number(getEffectiveDailyRate(listing)).toFixed(2);
-      const availability = listing.availability || 'Available now';
-      const status = listing.publicationStatus || (listing.isPublished ? 'Published' : 'Draft');
       const reservationsForListing = reservationLookup.get(listing.id) || [];
+      const availabilityLabel = 'Available now';
+      const availabilityClassName = 'catalog-result-card__availability catalog-result-card__availability--available';
       const monthDate = new Date();
       const calendarDays = buildCalendarDays(listing, reservationsForListing, monthDate);
       const reservedDays = calendarDays.filter((d) => d.day && d.reserved).length;
@@ -1801,11 +2056,10 @@ async function loadCatalogListings() {
               <h4>${escapeHtml(toolName)}</h4>
               <span class="catalog-result-card__price">${escapeHtml(formatUsdRate(dailyRate))}/day</span>
             </div>
-            <p>${escapeHtml(description)}</p>
+            <p class="catalog-result-card__description">${escapeHtml(description)}</p>
             <div class="catalog-result-card__meta">
               <span>${escapeHtml(categoryLabel)}</span>
-              <span>${escapeHtml(availability)}</span>
-              <span>${escapeHtml(status)}</span>
+              ${hasDateFilter ? `<span class="${availabilityClassName}">${escapeHtml(availabilityLabel)}</span>` : ''}
             </div>
             
             <div class="catalog-calendar" aria-label="Availability calendar for ${escapeHtml(toolName)}" data-month-offset="0" hidden>
@@ -1885,29 +2139,6 @@ async function loadCatalogListings() {
       `;
     }).join('');
 
-    const getDateRangeKeys = (startDateKey = '', endDateKey = '') => {
-      if (!startDateKey) {
-        return [];
-      }
-
-      const normalizedEndDateKey = endDateKey || startDateKey;
-      const start = new Date(`${startDateKey}T00:00:00`);
-      const end = new Date(`${normalizedEndDateKey}T00:00:00`);
-
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
-        return [startDateKey];
-      }
-
-      const rangeKeys = [];
-      const cursor = new Date(start);
-      while (cursor <= end) {
-        rangeKeys.push(getDateKey(cursor));
-        cursor.setDate(cursor.getDate() + 1);
-      }
-
-      return rangeKeys;
-    };
-
     const syncBookingUiForCalendar = (calendar, listing, reservationsForListing, selectedDateKey = '') => {
       if (!calendar) {
         return;
@@ -1960,19 +2191,9 @@ async function loadCatalogListings() {
         return;
       }
 
-      const reservedDateValues = Array.isArray(listing.reservedDates)
-        ? listing.reservedDates
-        : [listing.reservedDates || listing.reservedDate || listing.bookedDates].filter(Boolean);
-
       const selectedDateKeys = selectionRangeKeys.length > 1 ? selectionRangeKeys : [normalizedSelectedDate];
-      const isBooked = Boolean(
-        selectedDateKeys.some((dateKey) => Boolean(
-          reservationsForListing.find((reservation) => {
-            const reservationDate = getDateKey(reservation.bookedDate || reservation.date || reservation.startDate || reservation.start || reservation.endDate || reservation.end || reservation.reservedDates || reservation.bookedDates || reservation.dates);
-            return reservationDate === dateKey;
-          }) || reservedDateValues.some((value) => getDateKey(value) === dateKey)
-        ))
-      );
+      const reservedDateKeys = new Set(getReservedDateKeys(listing, reservationsForListing));
+      const isBooked = selectedDateKeys.some((dateKey) => reservedDateKeys.has(dateKey));
 
       if (selectionReady && selectionRangeKeys.length) {
         const rangeLabel = selectionRangeKeys.length > 1
@@ -2117,6 +2338,7 @@ async function loadCatalogListings() {
         const reservationPayload = createReservationSnapshot(listing, {
           listingId,
           ownerId: listing.ownerId || currentUser.uid,
+          ownerEmail: listing.ownerEmail || '',
           renterId: currentUser.uid,
           renterName: payerName,
           renterEmail: currentUser.email || '',
@@ -2252,6 +2474,14 @@ async function loadCatalogListings() {
       });
 
       card.addEventListener('keydown', (ev) => {
+        const interactiveTarget = ev.target instanceof Element
+          ? ev.target.closest('input, button, textarea, select, a, label')
+          : null;
+
+        if (interactiveTarget && interactiveTarget !== card) {
+          return;
+        }
+
         if (ev.key === 'Enter' || ev.key === ' ') {
           ev.preventDefault();
           card.click();
@@ -2606,6 +2836,14 @@ function showToolCatalogPage() {
         element.value = '';
       }
     });
+    const toolbarLocationInput = document.getElementById('tool-location');
+    const optionalZipInput = document.getElementById('zip-code-input');
+    if (toolbarLocationInput) {
+      toolbarLocationInput.value = '';
+    }
+    if (optionalZipInput) {
+      optionalZipInput.value = '';
+    }
     categorySelect.value = '';
     updateCategoryVisibility();
     updatePriceRange();
@@ -2643,11 +2881,13 @@ async function loadRenterReservations(currentUser) {
   }
 
   try {
-    const [allReservations, allListings] = await Promise.all([
+    const [allReservations, allListings, allUsers] = await Promise.all([
       databaseService.readRecords('reservations'),
-      databaseService.readRecords('listings')
+      databaseService.readRecords('listings'),
+      databaseService.readRecords('users')
     ]);
     const listingsById = new Map((allListings || []).map((listing) => [listing.id, listing]));
+    const userLookup = new Map((allUsers || []).map((user) => [user.uid || user.id, user]));
     const getReservationListingId = (reservation = {}) => {
       if (typeof reservation.listing === 'string') {
         return reservation.listing;
@@ -2690,6 +2930,16 @@ async function loadRenterReservations(currentUser) {
       return normalizedStatus === 'cancelled' || summary.hasStarted || summary.hasEnded || (!summary.eligible && normalizedStatus !== 'confirmed' && normalizedStatus !== 'booked' && normalizedStatus !== 'reserved');
     });
 
+    const cancelledHistory = history.filter((reservation) => {
+      const normalizedStatus = String(reservation.status || '').trim().toLowerCase();
+      return normalizedStatus === 'cancelled' || normalizedStatus === 'canceled' || normalizedStatus === 'rejected';
+    });
+
+    const completedHistory = history.filter((reservation) => {
+      const normalizedStatus = String(reservation.status || '').trim().toLowerCase();
+      return normalizedStatus !== 'cancelled' && normalizedStatus !== 'canceled' && normalizedStatus !== 'rejected';
+    });
+
     upcomingShell.innerHTML = upcoming.length
       ? upcoming.map((reservation) => {
         const summary = buildReservationCancellationSummary(reservation);
@@ -2698,6 +2948,20 @@ async function loadRenterReservations(currentUser) {
         const toolName = getReservationToolName(reservation);
         const status = String(reservation.status || 'Confirmed').trim();
         const normalizedStatus = status.toLowerCase();
+        const ownerId = reservation.ownerId || reservation.listing?.ownerId || '';
+        const ownerProfile = userLookup.get(ownerId) || null;
+        const lenderName = [ownerProfile?.firstName, ownerProfile?.lastName].filter(Boolean).join(' ') || 'Lender';
+        const lenderEmail = ownerProfile?.email || reservation.ownerEmail || reservation.listing?.ownerEmail || '';
+        const lenderPhone = ownerProfile?.phone || reservation.ownerPhone || reservation.listing?.ownerPhone || '';
+        const lenderContactMarkup = !['cancelled', 'canceled', 'rejected'].includes(normalizedStatus)
+          ? `
+              <div class="rental-contact-card">
+                <p><strong>Lender contact:</strong> ${escapeHtml(lenderName)}</p>
+                ${lenderEmail ? `<p><strong>Email:</strong> ${escapeHtml(lenderEmail)}</p>` : ''}
+                ${lenderPhone ? `<p><strong>Phone:</strong> ${escapeHtml(lenderPhone)}</p>` : ''}
+              </div>
+            `
+          : '';
         const showRefundLine = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
         const reservationDates = reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
         const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
@@ -2713,6 +2977,7 @@ async function loadRenterReservations(currentUser) {
               <h4>${escapeHtml(toolName)}</h4>
               <p><strong>Dates:</strong> ${escapeHtml(displayDates)}</p>
               <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+              ${lenderContactMarkup}
               <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
               ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
               ${summary.eligible
@@ -2724,14 +2989,27 @@ async function loadRenterReservations(currentUser) {
       }).join('')
       : '<p class="empty-state">You do not have any upcoming rentals right now.</p>';
 
-    historyShell.innerHTML = history.length
-      ? history.map((reservation) => {
+    const renderHistoryReservationCard = (reservation) => {
         const summary = buildReservationCancellationSummary(reservation);
         const refundPolicy = getRefundPolicy(reservation);
         const photo = getReservationPhoto(reservation);
         const toolName = getReservationToolName(reservation);
         const status = String(reservation.status || 'Completed').trim();
         const normalizedStatus = status.toLowerCase();
+        const ownerId = reservation.ownerId || reservation.listing?.ownerId || '';
+        const ownerProfile = userLookup.get(ownerId) || null;
+        const lenderName = [ownerProfile?.firstName, ownerProfile?.lastName].filter(Boolean).join(' ') || 'Lender';
+        const lenderEmail = ownerProfile?.email || reservation.ownerEmail || reservation.listing?.ownerEmail || '';
+        const lenderPhone = ownerProfile?.phone || reservation.ownerPhone || reservation.listing?.ownerPhone || '';
+        const lenderContactMarkup = !['cancelled', 'canceled', 'rejected'].includes(normalizedStatus)
+          ? `
+              <div class="rental-contact-card">
+                <p><strong>Lender contact:</strong> ${escapeHtml(lenderName)}</p>
+                ${lenderEmail ? `<p><strong>Email:</strong> ${escapeHtml(lenderEmail)}</p>` : ''}
+                ${lenderPhone ? `<p><strong>Phone:</strong> ${escapeHtml(lenderPhone)}</p>` : ''}
+              </div>
+            `
+          : '';
         const showRefundLine = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
         const reservationDates = reservation.startDate || reservation.startAt || reservation.startDateTime || reservation.start || reservation.bookedDate || reservation.date;
         const reservationEndDate = reservation.endDate || reservation.endAt || reservation.endDateTime || reservation.end || reservation.selectedDateRange?.at(-1) || reservation.bookedDate || reservation.date;
@@ -2747,12 +3025,31 @@ async function loadRenterReservations(currentUser) {
               <h4>${escapeHtml(toolName)}</h4>
               <p><strong>Dates:</strong> ${escapeHtml(displayDates)}</p>
               <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+              ${lenderContactMarkup}
               ${showRefundLine ? `<p><strong>Refund:</strong> ${escapeHtml(refundPolicy.summary)}</p>` : ''}
               <p><strong>Cancellation deadline:</strong> ${escapeHtml(summary.cancellationDeadlineLabel)}</p>
             </div>
           </article>
         `;
-      }).join('')
+      };
+
+    const renderHistorySection = (title, reservations, emptyMessage, openByDefault = false) => `
+      <details class="booking-status-folder" ${openByDefault ? 'open' : ''}>
+        <summary>
+          <span>${escapeHtml(title)}</span>
+          <span class="booking-count-badge">${reservations.length}</span>
+        </summary>
+        <div class="booking-status-folder__content">
+          ${reservations.length ? reservations.map((reservation) => renderHistoryReservationCard(reservation)).join('') : `<p class="empty-state">${escapeHtml(emptyMessage)}</p>`}
+        </div>
+      </details>
+    `;
+
+    historyShell.innerHTML = history.length
+      ? `
+          ${renderHistorySection('Completed Reservations', completedHistory, 'No completed reservations yet.', true)}
+          ${renderHistorySection('Cancelled Reservations', cancelledHistory, 'No cancelled reservations.', false)}
+        `
       : '<p class="empty-state">No cancelled or completed reservations yet.</p>';
 
     upcomingShell.querySelectorAll('.reservation-cancel-btn').forEach((button) => {

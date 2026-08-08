@@ -80,21 +80,53 @@ export class AuthService {
   }
 
   async sendPhoneVerification(phoneNumber, recaptchaContainerId = 'phone-recaptcha-container') {
-    const existingVerifier = window.recaptchaVerifier;
-    if (existingVerifier) {
-      await existingVerifier.clear();
+    const recaptchaContainer = document.getElementById(recaptchaContainerId);
+
+    if (!recaptchaContainer) {
+      const containerError = new Error('Phone verification cannot start because the CAPTCHA container is missing.');
+      containerError.code = 'auth/missing-recaptcha-container';
+      throw containerError;
     }
 
-    // Use invisible reCAPTCHA verifier created on-demand; avoid extra console output in production.
-    const appVerifier = new RecaptchaVerifier(firebaseAuth, recaptchaContainerId, {
-      size: 'invisible',
-      callback: () => {}
-    });
+    let appVerifier = window.recaptchaVerifier || null;
+    const isSameContainer = Boolean(appVerifier && appVerifier.__containerId === recaptchaContainerId);
 
-    window.recaptchaVerifier = appVerifier;
+    if (appVerifier && !isSameContainer) {
+      try {
+        appVerifier.clear();
+      } catch (clearError) {
+        // Ignore cleanup failures and create a fresh verifier.
+      }
+      window.recaptchaVerifier = null;
+      appVerifier = null;
+    }
 
-    const phoneProvider = new PhoneAuthProvider(firebaseAuth);
-    return phoneProvider.verifyPhoneNumber(phoneNumber, appVerifier);
+    if (!appVerifier) {
+      // Use an invisible reCAPTCHA verifier created on-demand and reused while the form stays mounted.
+      appVerifier = new RecaptchaVerifier(firebaseAuth, recaptchaContainerId, {
+        size: 'invisible',
+        callback: () => {}
+      });
+      appVerifier.__containerId = recaptchaContainerId;
+      window.recaptchaVerifier = appVerifier;
+    }
+
+    try {
+      const phoneProvider = new PhoneAuthProvider(firebaseAuth);
+      return await phoneProvider.verifyPhoneNumber(phoneNumber, appVerifier);
+    } catch (error) {
+      try {
+        appVerifier.clear();
+      } catch (clearError) {
+        // Ignore cleanup failures and force a fresh verifier next attempt.
+      }
+
+      if (window.recaptchaVerifier === appVerifier) {
+        window.recaptchaVerifier = null;
+      }
+
+      throw error;
+    }
   }
 
   async buildPhoneCredential(verificationId, code) {

@@ -36,10 +36,6 @@ export function renderDashboardView() {
       <div id="optional-filters" class="optional-filters hidden">
         <div class="filter-header-row">
           <h3>Refine your search</h3>
-          <div class="filter-actions">
-            <button id="apply-filters" class="primary" type="button">Apply Filters</button>
-            <button id="clear-filters" class="secondary" type="button">Clear All</button>
-          </div>
         </div>
 
         <div class="filter-section">
@@ -243,6 +239,11 @@ export function renderDashboardView() {
               <input id="rental-end" class="search-input" type="date" />
             </div>
           </div>
+        </div>
+
+        <div class="filter-actions filter-actions--bottom">
+          <button id="apply-filters" class="primary" type="button">Apply Filters</button>
+          <button id="clear-filters" class="secondary" type="button">Clear All</button>
         </div>
       </div>
 
