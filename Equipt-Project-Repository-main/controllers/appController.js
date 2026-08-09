@@ -1641,12 +1641,66 @@ async function loadMyListings(currentUser) {
           return;
         }
 
-        if (!window.confirm(`Delete ${listing.toolName || 'this listing'} permanently?`)) {
+        const confirmationMessage = `Delete ${listing.toolName || 'this listing'} permanently?`;
+        const modalMarkup = `
+          <div class="reservation-modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete listing confirmation">
+            <div class="reservation-modal">
+              <h3>Delete Listing</h3>
+              <div class="reservation-modal__content">
+                <p>${escapeHtml(confirmationMessage)}</p>
+              </div>
+              <div class="reservation-modal__actions">
+                <button type="button" class="secondary" data-action="cancel-delete-listing">Cancel</button>
+                <button type="button" class="primary" data-action="confirm-delete-listing">Delete</button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const modalRoot = document.createElement('div');
+        modalRoot.innerHTML = modalMarkup;
+        const modalElement = modalRoot.firstElementChild;
+
+        if (!modalElement) {
           return;
         }
 
-        await databaseService.deleteRecord('listings', listing.id);
-        await loadMyListings(currentUser);
+        document.body.appendChild(modalElement);
+
+        const closeModal = () => {
+          modalElement.remove();
+          document.removeEventListener('keydown', handleEscapeKey);
+        };
+
+        const handleEscapeKey = (event) => {
+          if (event.key === 'Escape') {
+            closeModal();
+          }
+        };
+
+        document.addEventListener('keydown', handleEscapeKey);
+
+        modalElement.addEventListener('click', (event) => {
+          if (event.target === modalElement) {
+            closeModal();
+          }
+        });
+
+        modalElement.querySelector('[data-action="cancel-delete-listing"]')?.addEventListener('click', () => {
+          closeModal();
+        });
+
+        modalElement.querySelector('[data-action="confirm-delete-listing"]')?.addEventListener('click', async () => {
+          try {
+            await databaseService.deleteRecord('listings', listing.id);
+            closeModal();
+            await loadMyListings(currentUser);
+          } catch (error) {
+            console.error('Unable to delete listing:', error);
+            closeModal();
+            window.alert('We could not delete this listing right now. Please try again.');
+          }
+        });
       });
     });
   } catch (error) {

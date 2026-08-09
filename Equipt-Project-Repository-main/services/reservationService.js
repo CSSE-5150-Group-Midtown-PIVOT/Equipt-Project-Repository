@@ -1,3 +1,30 @@
+function parseLocalDateOnlyString(value) {
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const parsed = new Date(year, monthIndex, day);
+
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== monthIndex ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function isDateOnlyString(value) {
+  return typeof value === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.test(value.trim());
+}
+
 function parseReservationDate(value) {
   if (!value) {
     return null;
@@ -10,6 +37,10 @@ function parseReservationDate(value) {
   if (typeof value === 'number') {
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  if (isDateOnlyString(value)) {
+    return parseLocalDateOnlyString(value);
   }
 
   const parsed = new Date(value);
@@ -27,6 +58,17 @@ export function calculateCancellationDeadline(startValue) {
 }
 
 export function formatReservationDateTime(value) {
+  if (isDateOnlyString(value)) {
+    const parsedDateOnly = parseLocalDateOnlyString(value);
+    if (!parsedDateOnly) {
+      return 'Not provided';
+    }
+
+    return parsedDateOnly.toLocaleDateString([], {
+      dateStyle: 'medium'
+    });
+  }
+
   const parsed = parseReservationDate(value);
 
   if (!parsed) {
