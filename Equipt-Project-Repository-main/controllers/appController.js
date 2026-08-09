@@ -2410,31 +2410,40 @@ async function loadCatalogListings() {
           allReservations: nextReservations
         };
 
+        const bookingConfirmationMessage = 'Booking confirmed! For additional details including contact information, visit your rental status dashboard.';
+
+        if (confirmationBanner) {
+          confirmationBanner.textContent = bookingConfirmationMessage;
+          confirmationBanner.hidden = false;
+          confirmationBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+
         if (calendar) {
-          if (confirmationBanner) {
-            confirmationBanner.textContent = 'Booking confirmed! For additional details including contact information, visit your rental status dashboard';
-            confirmationBanner.hidden = false;
+          const paymentInputs = calendar.querySelectorAll('.catalog-payment-panel input');
+          paymentInputs.forEach((input) => {
+            input.value = '';
+          });
+
+          if (paymentPanel) {
+            paymentPanel.hidden = true;
           }
 
-          window.setTimeout(() => {
-            if (confirmationBanner) {
-              confirmationBanner.textContent = '';
-              confirmationBanner.hidden = true;
-            }
-
-            const paymentInputs = calendar.querySelectorAll('.catalog-payment-panel input');
-            paymentInputs.forEach((input) => {
-              input.value = '';
-            });
-
-            if (paymentPanel) {
-              paymentPanel.hidden = true;
-            }
-
-            const offset = Number(calendar.dataset.monthOffset || '0');
-            renderCalendarForListing(listingId, offset);
-          }, 5000);
+          const offset = Number(calendar.dataset.monthOffset || '0');
+          renderCalendarForListing(listingId, offset);
         }
+
+        window.setTimeout(() => {
+          window.location.hash = 'profile';
+        }, 1800);
+
+        window.setTimeout(() => {
+          if (confirmationBanner) {
+            confirmationBanner.textContent = '';
+            confirmationBanner.hidden = true;
+          }
+        }, 6500);
 
         if (statusEl) {
           statusEl.textContent = 'Booking confirmed. Your demo payment completed successfully.';
@@ -2781,8 +2790,21 @@ function showToolCatalogPage() {
       if (input === rateMinInput || input === rateMaxInput) {
         syncRangeInputs(input);
       } else {
-        const minValue = Number(priceMinInput?.value || 0);
-        const maxValue = Number(priceMaxInput?.value || 500);
+        const minRawValue = String(priceMinInput?.value ?? '').trim();
+        const maxRawValue = String(priceMaxInput?.value ?? '').trim();
+
+        // Allow users to temporarily clear either field while editing without snapping back to defaults.
+        if (!minRawValue || !maxRawValue) {
+          return;
+        }
+
+        const minValue = Number(minRawValue);
+        const maxValue = Number(maxRawValue);
+
+        if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+          return;
+        }
+
         const safeMin = Math.min(minValue, maxValue);
         const safeMax = Math.max(minValue, maxValue);
         if (priceMinInput) {
