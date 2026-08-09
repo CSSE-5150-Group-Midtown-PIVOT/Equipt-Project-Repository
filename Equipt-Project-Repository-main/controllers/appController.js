@@ -627,6 +627,7 @@ function showListToolPage() {
 
     try {
       setStatus('', false);
+      const confirmationBanner = document.getElementById('booking-confirmation-banner');
       const photos = await readImageFilesAsDataUrls(selectedImages.map((entry) => entry.file));
       const selectedSubcategories = Array.from(document.querySelectorAll('#list-category-checklist input[type="checkbox"]:checked')).map((checkbox) => checkbox.value);
       const nextDailyRate = normalizeDailyRate(document.getElementById('rental-price')?.value || 0);
@@ -689,7 +690,20 @@ function showListToolPage() {
       renderPreviews();
       updatePublishState();
       setStatus('Success: listing published.', false);
+
+      if (confirmationBanner) {
+        confirmationBanner.textContent = 'Success: listing published.';
+        confirmationBanner.hidden = false;
+        confirmationBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+
       window.setTimeout(() => {
+        if (confirmationBanner) {
+          confirmationBanner.textContent = '';
+          confirmationBanner.hidden = true;
+        }
         window.location.hash = 'home';
       }, 1200);
     } catch (error) {
